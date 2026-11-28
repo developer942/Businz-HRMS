@@ -616,4 +616,26 @@ describe('BUSINZ HRMS - Complete Petty Cash Management Module (End-to-End)', () 
     expect(reqBody.data.status).toBe('PENDING_CEO_APPROVAL');
     expect(reqBody.data.request_number).toBe(`PCR-${new Date().getFullYear()}-0002`);
   });
+
+  it('26. Returns the 10 standardized Petty Cash Expense Categories in clean display order', async () => {
+    const res = await fetch(`${BASE_URL}/categories`, {
+      headers: { Authorization: `Bearer ${ceoToken}` },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    const names = (body.data as Array<{ name: string }>).map((c) => c.name);
+    expect(names.slice(0, 10)).toEqual([
+      'Inward Transport',
+      'Transport',
+      'Food',
+      'Snacks',
+      'Material Purchase',
+      'Recharge',
+      'Birthday Gift',
+      'Repair & Maintenance',
+      'Advance',
+      'Toll Charge',
+    ]);
+  });
 });

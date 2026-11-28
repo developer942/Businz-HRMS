@@ -13,16 +13,31 @@ import {
   PettyCashAuditLog,
 } from '../types/pettyCash.js';
 
-// Default categories
+// Standardized Petty Cash expense categories (ordered for clean UX)
+const STANDARD_CATEGORY_ORDER = [
+  'Inward Transport',
+  'Transport',
+  'Food',
+  'Snacks',
+  'Material Purchase',
+  'Recharge',
+  'Birthday Gift',
+  'Repair & Maintenance',
+  'Advance',
+  'Toll Charge',
+];
+
 const DEFAULT_CATEGORIES: PettyCashCategory[] = [
-  { id: 'cat-001', company_id: 'company-a', name: 'Tea & Coffee', description: 'Office daily tea, coffee, refreshments, snacks', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-002', company_id: 'company-a', name: 'Stationery', description: 'Pens, notepads, printing paper, toner', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-003', company_id: 'company-a', name: 'Courier', description: 'Postal and parcel dispatch charges', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-004', company_id: 'company-a', name: 'Local Transport', description: 'Auto rickshaw, taxi, local transit', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-005', company_id: 'company-a', name: 'Petrol / Fuel', description: 'Fuel allowances for office errands & field visits', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-006', company_id: 'company-a', name: 'Office Maintenance', description: 'Plumbing, electrical repairs, hardware fixes', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-007', company_id: 'company-a', name: 'Cleaning Materials', description: 'Disinfectants, soaps, mops, sanitizers', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat-008', company_id: 'company-a', name: 'Other', description: 'Miscellaneous petty office operational expenditures', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-001', company_id: 'company-a', name: 'Inward Transport', description: 'Inward freight, porter, and incoming material transport charges', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-002', company_id: 'company-a', name: 'Transport', description: 'Local transit, auto, taxi, and dispatch transport expenses', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-003', company_id: 'company-a', name: 'Food', description: 'Staff meals, lunch, dinner, and official hospitality food', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-004', company_id: 'company-a', name: 'Snacks', description: 'Tea, coffee, biscuits, and office refreshments', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-005', company_id: 'company-a', name: 'Material Purchase', description: 'Consumables, hardware, tools, and petty material purchases', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-006', company_id: 'company-a', name: 'Recharge', description: 'Mobile, data card, DTH, and utility recharges', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-007', company_id: 'company-a', name: 'Birthday Gift', description: 'Employee birthday cakes, gifts, and celebrations', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-008', company_id: 'company-a', name: 'Repair & Maintenance', description: 'Equipment repair, electrical, plumbing, and office maintenance', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-009', company_id: 'company-a', name: 'Advance', description: 'Short-term petty cash employee or vendor advances', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat-010', company_id: 'company-a', name: 'Toll Charge', description: 'Highway toll, FASTag, and parking toll charges', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
 ];
 
 export class PettyCashRepository {
@@ -2068,6 +2083,21 @@ export class PettyCashRepository {
   // 7. CATEGORIES
   // ============================================================
 
+  private sortCategories(list: PettyCashCategory[]): PettyCashCategory[] {
+    const rank = (name: string): number => {
+      const idx = STANDARD_CATEGORY_ORDER.findIndex(
+        (std) => std.toLowerCase() === name.trim().toLowerCase()
+      );
+      return idx >= 0 ? idx : STANDARD_CATEGORY_ORDER.length;
+    };
+    return [...list].sort((a, b) => {
+      const ra = rank(a.name);
+      const rb = rank(b.name);
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
   async getCategories(companyId: string): Promise<PettyCashCategory[]> {
     try {
       const res = await query(
@@ -2078,16 +2108,18 @@ export class PettyCashRepository {
         [companyId || 'company-a']
       );
       if (res && res.rows && res.rows.length > 0) {
-        return res.rows.map(r => ({
-          id: r.id,
-          company_id: r.company_id,
-          name: r.name,
-          category_name: r.name,
-          description: r.description,
-          is_active: r.is_active,
-          created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
-          updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
-        }));
+        return this.sortCategories(
+          res.rows.map(r => ({
+            id: r.id,
+            company_id: r.company_id,
+            name: r.name,
+            category_name: r.name,
+            description: r.description,
+            is_active: r.is_active,
+            created_at: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+            updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+          }))
+        );
       }
     } catch (err) {
       console.warn('[PettyCashRepository] DB getCategories fallback:', err);
@@ -2099,7 +2131,7 @@ export class PettyCashRepository {
         list.push({ ...c, category_name: c.name });
       }
     }
-    return list.sort((a, b) => a.name.localeCompare(b.name));
+    return this.sortCategories(list);
   }
 
   async createCategory(companyId: string, name: string, description?: string): Promise<PettyCashCategory> {

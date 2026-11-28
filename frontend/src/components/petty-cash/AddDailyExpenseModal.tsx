@@ -46,14 +46,16 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
         .catch(() => {
           // Fallback static categories
           const fallback = [
-            { id: 'cat-001', name: 'Tea & Coffee', category_name: 'Tea & Coffee', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-002', name: 'Stationery', category_name: 'Stationery', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-003', name: 'Courier', category_name: 'Courier', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-004', name: 'Local Transport', category_name: 'Local Transport', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-005', name: 'Petrol / Fuel', category_name: 'Petrol / Fuel', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-006', name: 'Office Maintenance', category_name: 'Office Maintenance', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-007', name: 'Cleaning Materials', category_name: 'Cleaning Materials', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
-            { id: 'cat-008', name: 'Other', category_name: 'Other', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-001', name: 'Inward Transport', category_name: 'Inward Transport', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-002', name: 'Transport', category_name: 'Transport', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-003', name: 'Food', category_name: 'Food', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-004', name: 'Snacks', category_name: 'Snacks', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-005', name: 'Material Purchase', category_name: 'Material Purchase', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-006', name: 'Recharge', category_name: 'Recharge', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-007', name: 'Birthday Gift', category_name: 'Birthday Gift', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-008', name: 'Repair & Maintenance', category_name: 'Repair & Maintenance', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-009', name: 'Advance', category_name: 'Advance', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
+            { id: 'cat-010', name: 'Toll Charge', category_name: 'Toll Charge', company_id: 'company-a', is_active: true, is_system_default: true, created_at: '' },
           ];
           setCategories(fallback);
         });
@@ -251,7 +253,7 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
                     className="petty-cash-input"
                     style={{ width: '100%' }}
                     list="petty-cash-category-options"
-                    placeholder="Type or select category (e.g. Tea, Fuel, Stationery...)"
+                    placeholder="Select below or type a new category..."
                     value={categoryName}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -270,38 +272,6 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
                       return <option key={cat.id} value={label} />;
                     })}
                   </datalist>
-                </div>
-
-                {/* Quick Selection Pills */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                  {categories.slice(0, 8).map((cat) => {
-                    const cName = cat.name || cat.category_name || '';
-                    if (!cName) return null;
-                    const isSelected = categoryName.trim().toLowerCase() === cName.toLowerCase();
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => {
-                          setCategoryName(cName);
-                          setCategoryId(cat.id);
-                        }}
-                        style={{
-                          padding: '3px 10px',
-                          fontSize: '0.75rem',
-                          fontWeight: 500,
-                          borderRadius: '9999px',
-                          border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
-                          backgroundColor: isSelected ? '#ECFEFF' : '#F8FAFC',
-                          color: isSelected ? '#0E7490' : '#475569',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {cName}
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
 
@@ -327,6 +297,43 @@ export const AddDailyExpenseModal: React.FC<AddDailyExpenseModalProps> = ({
                   onChange={(e) => setAmount(e.target.value)}
                   required
                 />
+              </div>
+            </div>
+
+            {/* Full-width Quick Selection Category Pills */}
+            <div style={{ marginTop: '-6px', marginBottom: '14px' }}>
+              <div style={{ fontSize: '0.72rem', color: '#64748B', marginBottom: '6px', fontWeight: 600 }}>
+                Quick Categories (or type a custom category above to add):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {categories.map((cat) => {
+                  const cName = cat.name || cat.category_name || '';
+                  if (!cName) return null;
+                  const isSelected = categoryName.trim().toLowerCase() === cName.toLowerCase();
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => {
+                        setCategoryName(cName);
+                        setCategoryId(cat.id);
+                      }}
+                      style={{
+                        padding: '5px 11px',
+                        fontSize: '0.76rem',
+                        fontWeight: isSelected ? 700 : 500,
+                        borderRadius: '9999px',
+                        border: isSelected ? '1px solid #0E7490' : '1px solid #E2E8F0',
+                        backgroundColor: isSelected ? '#ECFEFF' : '#F8FAFC',
+                        color: isSelected ? '#0E7490' : '#334155',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {cName}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
