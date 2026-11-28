@@ -306,7 +306,7 @@ export const NewTaskForm: React.FC<NewTaskFormProps> = ({ onTaskCreated, onCance
 
       setAttachmentsList(prev => [...prev, initialAtt]);
 
-      if (file.size < 400 * 1024) {
+      if (file.size <= 5 * 1024 * 1024) {
         const reader = new FileReader();
         reader.onload = event => {
           const base64Url = event.target?.result as string;

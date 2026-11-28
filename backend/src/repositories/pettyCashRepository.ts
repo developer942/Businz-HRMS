@@ -60,6 +60,59 @@ export class PettyCashRepository {
     }
   }
 
+  private isDbUnavailableError(err: unknown): boolean {
+    const e = err as { code?: string; message?: string; errors?: Array<{ code?: string }> } | null;
+    const code = String(e?.code || '');
+    const msg = String(e?.message || '');
+    if (
+      [
+        'ECONNREFUSED',
+        'ENOTFOUND',
+        'ECONNRESET',
+        'ETIMEDOUT',
+        'EAI_AGAIN',
+        '57P01',
+        '57P03',
+        '3D000',
+        '28P01',
+        '28000',
+        '42P01',
+      ].includes(code)
+    ) {
+      return true;
+    }
+    if (
+      Array.isArray(e?.errors) &&
+      e.errors.some((sub) => ['ECONNREFUSED', 'ENOTFOUND'].includes(String(sub?.code || '')))
+    ) {
+      return true;
+    }
+    return (
+      /ECONNREFUSED|ENOTFOUND|connection terminated|timeout expired|connect ECONN|role .* does not exist|database .* does not exist/i.test(
+        msg
+      ) && !/violates/i.test(msg)
+    );
+  }
+
+  private async resolveEmployeeUuid(
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }> },
+    rawId?: string,
+    rawCode?: string
+  ): Promise<string | null> {
+    const cleanId = String(rawId || '').trim();
+    const cleanCode = String(rawCode || '').trim();
+    if (!cleanId && !cleanCode) return null;
+    const res = await client.query(
+      `SELECT id FROM public.employees
+       WHERE ($1 <> '' AND id::text = $1)
+          OR ($2 <> '' AND LOWER(employee_id) = LOWER($2))
+          OR ($1 <> '' AND LOWER(employee_id) = LOWER($1))
+       LIMIT 1`,
+      [cleanId, cleanCode]
+    );
+    return res.rows[0]?.id ? String(res.rows[0].id) : null;
+  }
+
   // ============================================================
   // 1. CUSTODIAN ACCOUNT MANAGEMENT
   // ============================================================
@@ -69,8 +122,8 @@ export class PettyCashRepository {
       const res = await query(
         `SELECT 
            a.*,
-           COALESCE((SELECT SUM(d.disbursed_amount) FROM public.petty_cash_disbursements d WHERE d.account_id = a.id AND d.status IN ('DISBURSED', 'CONFIRMED')), 0) AS total_cash_received,
-           COALESCE((SELECT SUM(e.amount) FROM public.petty_cash_expenses e WHERE e.account_id = a.id AND e.is_reversed = false), 0) AS total_spent
+           COALESCE((SELECT SUM(d.disbursed_amount) FROM public.petty_cash_disbursements d WHERE d.company_id = a.company_id AND d.status IN ('DISBURSED', 'CONFIRMED')), 0) AS total_cash_received,
+           COALESCE((SELECT SUM(e.amount) FROM public.petty_cash_expenses e WHERE e.company_id = a.company_id AND e.is_reversed = false), 0) AS total_spent
          FROM public.petty_cash_accounts a 
          WHERE a.company_id = $1 AND a.status = 'ACTIVE' LIMIT 1`,
         [companyId || 'company-a']
@@ -225,12 +278,53 @@ export class PettyCashRepository {
     return null;
   }
 
+  async getAccountHistory(companyId: string): Promise<PettyCashAccount[]> {
+    const cid = companyId || 'company-a';
+    try {
+      const res = await query(
+        `SELECT * FROM public.petty_cash_accounts WHERE company_id = $1 ORDER BY created_at DESC`,
+        [cid]
+      );
+      if (res && res.rows) {
+        return res.rows.map((data) => ({
+          id: data.id,
+          company_id: data.company_id,
+          custodian_id: data.custodian_id,
+          custodian_employee_id: data.custodian_employee_id,
+          custodian_name: data.custodian_name,
+          assigned_by_id: data.assigned_by_id,
+          assigned_by_name: data.assigned_by_name,
+          assignment_date:
+            data.assignment_date instanceof Date
+              ? data.assignment_date.toISOString().slice(0, 10)
+              : String(data.assignment_date || ''),
+          status: data.status,
+          current_balance: Number(data.current_balance),
+          low_balance_threshold: Number(data.low_balance_threshold),
+          reconciliation_status: data.reconciliation_status || 'NONE',
+          reconciliation_notes: data.reconciliation_notes,
+          created_at: data.created_at ? new Date(data.created_at).toISOString() : new Date().toISOString(),
+          updated_at: data.updated_at ? new Date(data.updated_at).toISOString() : new Date().toISOString(),
+        }));
+      }
+    } catch (err) {
+      if (!this.isDbUnavailableError(err)) {
+        console.warn('[PettyCashRepository] getAccountHistory DB error:', err);
+      }
+    }
+
+    return Array.from(this.accounts.values())
+      .filter((a) => a.company_id === cid)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
   async assignCustodian(params: {
     companyId: string;
     custodianId: string;
     custodianEmployeeId: string;
     custodianName: string;
     assignedById: string;
+    assignedByEmployeeCode?: string;
     assignedByName: string;
     assignmentDate?: string;
     lowBalanceThreshold?: number;
@@ -242,6 +336,7 @@ export class PettyCashRepository {
         custodianEmployeeId,
         custodianName,
         assignedById,
+        assignedByEmployeeCode,
         assignedByName,
         assignmentDate = new Date().toISOString().split('T')[0],
         lowBalanceThreshold = 1000,
@@ -256,6 +351,7 @@ export class PettyCashRepository {
       }
 
       const id = crypto.randomUUID();
+      const nowIso = new Date().toISOString();
       const account: PettyCashAccount = {
         id,
         company_id: companyId || 'company-a',
@@ -269,9 +365,47 @@ export class PettyCashRepository {
         current_balance: 0.0,
         low_balance_threshold: lowBalanceThreshold,
         reconciliation_status: 'NONE',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: nowIso,
+        updated_at: nowIso,
       };
+
+      try {
+        await withTransaction(async (client) => {
+          const resolvedCustodianId =
+            (await this.resolveEmployeeUuid(client, custodianId, custodianEmployeeId)) || custodianId;
+          let resolvedAssignedById =
+            (await this.resolveEmployeeUuid(client, assignedById, assignedByEmployeeCode)) || assignedById;
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedAssignedById)) {
+            resolvedAssignedById = resolvedCustodianId;
+          }
+
+          await client.query(
+            `INSERT INTO public.petty_cash_accounts (
+              id, company_id, custodian_id, custodian_employee_id, custodian_name,
+              assigned_by_id, assigned_by_name, assignment_date, status,
+              current_balance, low_balance_threshold, reconciliation_status, created_at, updated_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',0.00,$9,'NONE',NOW(),NOW())`,
+            [
+              account.id,
+              account.company_id,
+              resolvedCustodianId,
+              account.custodian_employee_id,
+              account.custodian_name,
+              resolvedAssignedById,
+              account.assigned_by_name,
+              account.assignment_date,
+              account.low_balance_threshold,
+            ]
+          );
+          account.custodian_id = resolvedCustodianId;
+          account.assigned_by_id = resolvedAssignedById;
+        });
+      } catch (err) {
+        if (!this.isDbUnavailableError(err)) {
+          throw err;
+        }
+        console.warn('[PettyCashRepository] DB insert account fallback (offline/test mode):', err);
+      }
 
       if (isRealSupabaseConfigured()) {
         try {
@@ -290,7 +424,7 @@ export class PettyCashRepository {
             low_balance_threshold: account.low_balance_threshold,
           });
         } catch (err) {
-          console.warn('[PettyCashRepository] DB insert account fallback:', err);
+          console.warn('[PettyCashRepository] Supabase insert account fallback:', err);
         }
       }
 
@@ -300,11 +434,13 @@ export class PettyCashRepository {
   }
 
   async reassignCustodian(params: {
+    companyId?: string;
     previousAccountId: string;
     newEmployeeId: string;
     newEmployeeName: string;
     newEmployeeCode: string;
     assignedById: string;
+    assignedByEmployeeCode?: string;
     assignedByName: string;
     reconciliationNotes: string;
     physicalCashCounted: number;
@@ -315,61 +451,76 @@ export class PettyCashRepository {
       if (!prevAccount) {
         throw new Error('Previous petty cash account not found');
       }
+      if (prevAccount.status !== 'ACTIVE') {
+        throw new Error('Only an ACTIVE petty cash custodian account can be handed over.');
+      }
 
-      const currentLedgerBalance = new Decimal(prevAccount.current_balance);
-      const physicalCash = new Decimal(params.physicalCashCounted);
+      const currentLedgerBalance = new Decimal(prevAccount.current_balance).toDecimalPlaces(2);
+      const physicalCash = new Decimal(params.physicalCashCounted).toDecimalPlaces(2);
 
       // Verify physical cash reconciliation
       const diff = physicalCash.minus(currentLedgerBalance);
       const isReconciled = diff.isZero();
+      const reconciliationStatus: 'RECONCILED' | 'DISCREPANCY' = isReconciled
+        ? 'RECONCILED'
+        : 'DISCREPANCY';
+      const reconciliationSummary = `Reconciliation: Expected ₹${currentLedgerBalance.toFixed(2)}, Counted ₹${physicalCash.toFixed(2)}. ${params.reconciliationNotes}. Reassigned by ${params.assignedByName}.`;
 
-      // Deactivate previous account
-      prevAccount.status = 'TRANSFERRED';
-      prevAccount.reconciliation_status = isReconciled ? 'RECONCILED' : 'DISCREPANCY';
-      prevAccount.reconciliation_notes = `Reconciliation: Expected ₹${currentLedgerBalance.toFixed(2)}, Counted ₹${physicalCash.toFixed(2)}. ${params.reconciliationNotes}. Reassigned by ${params.assignedByName}.`;
-      prevAccount.updated_at = new Date().toISOString();
-
+      const nowIso = new Date().toISOString();
+      const todayDate = nowIso.split('T')[0];
       const newId = crypto.randomUUID();
       const initialBalance = params.transferRemainingBalance ? physicalCash.toNumber() : 0;
+      const prevFinalBalance =
+        params.transferRemainingBalance && initialBalance > 0 ? 0.0 : currentLedgerBalance.toNumber();
+
+      const updatedPrev: PettyCashAccount = {
+        ...prevAccount,
+        status: 'TRANSFERRED',
+        current_balance: prevFinalBalance,
+        reconciliation_status: reconciliationStatus,
+        reconciliation_notes: reconciliationSummary,
+        updated_at: nowIso,
+      };
 
       const newAccount: PettyCashAccount = {
         id: newId,
-        company_id: prevAccount.company_id,
+        company_id: prevAccount.company_id || params.companyId || 'company-a',
         custodian_id: params.newEmployeeId,
         custodian_employee_id: params.newEmployeeCode,
         custodian_name: params.newEmployeeName,
         assigned_by_id: params.assignedById,
         assigned_by_name: params.assignedByName,
-        assignment_date: new Date().toISOString().split('T')[0],
+        assignment_date: todayDate,
         status: 'ACTIVE',
         current_balance: initialBalance,
+        total_cash_received: prevAccount.total_cash_received,
+        total_spent: prevAccount.total_spent,
         low_balance_threshold: prevAccount.low_balance_threshold,
         reconciliation_status: 'NONE',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        reconciliation_notes: `Handover received from ${prevAccount.custodian_name} (${prevAccount.custodian_employee_id}). ${params.reconciliationNotes}`,
+        created_at: nowIso,
+        updated_at: nowIso,
       };
 
+      const transferEntries: PettyCashLedgerEntry[] = [];
       if (params.transferRemainingBalance && initialBalance > 0) {
-        // Record balance transfer ledger entries
-        const prevEntry: PettyCashLedgerEntry = {
+        transferEntries.push({
           id: crypto.randomUUID(),
-          company_id: prevAccount.company_id,
-          account_id: prevAccount.id,
+          company_id: updatedPrev.company_id,
+          account_id: updatedPrev.id,
           transaction_type: 'ADJUSTMENT',
           reference_type: 'RECONCILIATION_ADJUSTMENT',
-          reference_id: prevAccount.id,
+          reference_id: updatedPrev.id,
           amount: initialBalance,
           balance_before: currentLedgerBalance.toNumber(),
           balance_after: 0.0,
           description: `Balance transferred to new custodian ${params.newEmployeeName} (${params.newEmployeeCode})`,
+          idempotency_key: `HANDOVER-OUT-${updatedPrev.id}-${newId}`,
           created_by_id: params.assignedById,
           created_by_name: params.assignedByName,
-          created_at: new Date().toISOString(),
-        };
-        prevAccount.current_balance = 0.0;
-        this.ledger.unshift(prevEntry);
-
-        const newEntry: PettyCashLedgerEntry = {
+          created_at: nowIso,
+        });
+        transferEntries.push({
           id: crypto.randomUUID(),
           company_id: newAccount.company_id,
           account_id: newAccount.id,
@@ -380,17 +531,127 @@ export class PettyCashRepository {
           balance_before: 0.0,
           balance_after: initialBalance,
           description: `Transferred balance received from previous custodian ${prevAccount.custodian_name} (${prevAccount.custodian_employee_id})`,
+          idempotency_key: `HANDOVER-IN-${newId}`,
           created_by_id: params.assignedById,
           created_by_name: params.assignedByName,
-          created_at: new Date().toISOString(),
-        };
-        this.ledger.unshift(newEntry);
+          created_at: nowIso,
+        });
       }
 
-      this.accounts.set(prevAccount.id, prevAccount);
+      try {
+        await withTransaction(async (client) => {
+          const locked = await client.query(
+            `SELECT * FROM public.petty_cash_accounts WHERE id = $1 FOR UPDATE`,
+            [prevAccount.id]
+          );
+          if (locked.rows.length === 0) {
+            throw new Error('Previous petty cash account not found');
+          }
+          const dbPrev = locked.rows[0];
+          if (dbPrev.status !== 'ACTIVE') {
+            throw new Error('Only an ACTIVE petty cash custodian account can be handed over.');
+          }
+
+          const resolvedNewCustodianId = await this.resolveEmployeeUuid(
+            client,
+            params.newEmployeeId,
+            params.newEmployeeCode
+          );
+          if (!resolvedNewCustodianId) {
+            throw new Error(
+              `Selected new custodian (${params.newEmployeeName}) could not be matched to an employee record.`
+            );
+          }
+
+          const resolvedAssignedById =
+            (await this.resolveEmployeeUuid(client, params.assignedById, params.assignedByEmployeeCode)) ||
+            String(dbPrev.assigned_by_id);
+
+          // Step 1: Mark previous ACTIVE account as TRANSFERRED FIRST to satisfy unique active index
+          await client.query(
+            `UPDATE public.petty_cash_accounts
+             SET status = 'TRANSFERRED',
+                 current_balance = $2,
+                 reconciliation_status = $3,
+                 reconciliation_notes = $4,
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [
+              prevAccount.id,
+              prevFinalBalance,
+              reconciliationStatus,
+              reconciliationSummary,
+            ]
+          );
+
+          // Step 2: Insert new ACTIVE custodian account with reconciled transferred balance
+          await client.query(
+            `INSERT INTO public.petty_cash_accounts (
+              id, company_id, custodian_id, custodian_employee_id, custodian_name,
+              assigned_by_id, assigned_by_name, assignment_date, status,
+              current_balance, low_balance_threshold, reconciliation_status,
+              reconciliation_notes, created_at, updated_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',$9,$10,'NONE',$11,NOW(),NOW())`,
+            [
+              newAccount.id,
+              newAccount.company_id,
+              resolvedNewCustodianId,
+              newAccount.custodian_employee_id,
+              newAccount.custodian_name,
+              resolvedAssignedById,
+              newAccount.assigned_by_name,
+              newAccount.assignment_date,
+              newAccount.current_balance,
+              newAccount.low_balance_threshold,
+              newAccount.reconciliation_notes || null,
+            ]
+          );
+
+          newAccount.custodian_id = resolvedNewCustodianId;
+          newAccount.assigned_by_id = resolvedAssignedById;
+
+          // Step 3: Persist immutable reconciliation balance-transfer ledger entries
+          for (const entry of transferEntries) {
+            entry.created_by_id = resolvedAssignedById;
+            await client.query(
+              `INSERT INTO public.petty_cash_ledger (
+                id, company_id, account_id, transaction_type, reference_type,
+                reference_id, amount, balance_before, balance_after, description,
+                idempotency_key, created_by_id, created_by_name, created_at
+              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+              [
+                entry.id,
+                entry.company_id,
+                entry.account_id,
+                entry.transaction_type,
+                entry.reference_type,
+                entry.reference_id,
+                entry.amount,
+                entry.balance_before,
+                entry.balance_after,
+                entry.description,
+                entry.idempotency_key || null,
+                resolvedAssignedById,
+                entry.created_by_name,
+                entry.created_at,
+              ]
+            );
+          }
+        });
+      } catch (err) {
+        if (!this.isDbUnavailableError(err)) {
+          throw err;
+        }
+        console.warn('[PettyCashRepository] DB reassignCustodian fallback (offline/test mode):', err);
+      }
+
+      for (const entry of transferEntries) {
+        this.ledger.unshift(entry);
+      }
+      this.accounts.set(updatedPrev.id, updatedPrev);
       this.accounts.set(newAccount.id, newAccount);
 
-      return { previousAccount: prevAccount, newAccount };
+      return { previousAccount: updatedPrev, newAccount };
     });
   }
 
@@ -1724,6 +1985,34 @@ export class PettyCashRepository {
       ip_address: params.ipAddress,
       created_at: new Date().toISOString(),
     };
+    try {
+      await query(
+        `INSERT INTO public.petty_cash_audit_logs (
+          id, company_id, account_id, action, performed_by_id,
+          performed_by_name, performed_by_role, entity_type, entity_id,
+          details, ip_address, created_at
+        )
+        SELECT $1, $2, $3, $4, emp.id, $6, $7, $8, $9, $10::jsonb, $11, NOW()
+        FROM public.employees emp
+        WHERE emp.id::text = $5
+        LIMIT 1`,
+        [
+          log.id,
+          log.company_id,
+          log.account_id || null,
+          log.action,
+          log.performed_by_id,
+          log.performed_by_name,
+          log.performed_by_role,
+          log.entity_type,
+          log.entity_id,
+          JSON.stringify(log.details || {}),
+          log.ip_address || null,
+        ]
+      );
+    } catch {
+      // Best-effort DB audit persistence; never block operation in offline/test mode
+    }
     this.auditLogs.unshift(log);
     return log;
   }

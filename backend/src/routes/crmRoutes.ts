@@ -59,8 +59,13 @@ crmRouter.get('/broadcasts', requirePermission('whatsapp_crm', 'view'), (req, re
 crmRouter.get('/broadcasts/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getBroadcastById(req, res));
 crmRouter.post(
   '/broadcasts',
-  requirePermission('whatsapp_crm', 'create'),
+  requirePermission('whatsapp_crm', 'edit'),
   (req, res) => crmController.createBroadcast(req, res)
+);
+crmRouter.patch(
+  '/broadcasts/:id/status',
+  requirePermission('whatsapp_crm', 'edit'),
+  (req, res) => crmController.updateBroadcastStatus(req, res)
 );
 
 // 7. Templates

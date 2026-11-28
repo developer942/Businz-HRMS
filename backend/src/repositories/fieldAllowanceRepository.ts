@@ -35,13 +35,32 @@ async function ensureBalanceReturnSchema(): Promise<void> {
         ADD COLUMN IF NOT EXISTS balance_received_by TEXT,
         ADD COLUMN IF NOT EXISTS balance_received_by_name TEXT,
         ADD COLUMN IF NOT EXISTS balance_received_at TIMESTAMPTZ;
+
+      ALTER TABLE public.field_allowance_requests
+        DROP CONSTRAINT IF EXISTS field_allowance_requests_status_check;
+
+      ALTER TABLE public.field_allowance_requests
+        ADD CONSTRAINT field_allowance_requests_status_check CHECK (status IN (
+          'DRAFT','PENDING_APPROVAL','PENDING_ADVANCE_APPROVAL','APPROVED',
+          'PENDING_DISTRIBUTION','AMOUNT_DISTRIBUTED','ACTIVE_VISIT','IN_PROGRESS',
+          'CLAIM_SUBMITTED','PENDING_SETTLEMENT_VERIFICATION','PENDING_REIMBURSEMENT',
+          'PENDING_RETURN','COMPLETED','SETTLED','CORRECTION_REQUESTED','REJECTED'
+        ));
+
+      ALTER TABLE public.field_allowance_daily_reports
+        DROP CONSTRAINT IF EXISTS field_allowance_daily_reports_category_check;
+
+      ALTER TABLE public.field_allowance_daily_reports
+        ADD CONSTRAINT field_allowance_daily_reports_category_check CHECK (category IN (
+          'TRAVEL','BUS','TRAIN','TAXI_AUTO','FUEL','FOOD','ROOM','PARKING','TOLL','OTHER'
+        ));
     `);
     // Ensure any completed trip that was marked RECEIVED_BY_ACCOUNTS without an Accounts reference/proof
     // (e.g. from the old FieldAllowance table button) is placed in SUBMITTED_TO_ACCOUNTS so it appears in Accounts Payment Disbursement
     await query(`
       UPDATE public.field_allowance_requests
       SET balance_return_status = 'SUBMITTED_TO_ACCOUNTS'
-      WHERE status = 'COMPLETED'
+      WHERE status IN ('COMPLETED', 'SETTLED')
         AND returned_amount > 0
         AND balance_return_status = 'RECEIVED_BY_ACCOUNTS'
         AND balance_return_reference IS NULL
@@ -161,6 +180,9 @@ export class FieldAllowanceRepository {
 
   async updateDraft(companyId: string, id: string, employeeId: string, input: Partial<FieldAllowanceRequest>, submit: boolean): Promise<FieldAllowanceRequest | null> {
     await ensureBalanceReturnSchema();
+    const nextStatus = submit
+      ? (input.advance_required ? 'PENDING_APPROVAL' : 'ACTIVE_VISIT')
+      : (input.status || 'DRAFT');
     const result = await query(
       `UPDATE public.field_allowance_requests SET
         purpose=$4, customer_site_name=$5, destination=$6, start_date=$7, end_date=$8,
@@ -170,7 +192,7 @@ export class FieldAllowanceRepository {
        RETURNING id`,
       [companyId, id, employeeId, input.purpose, input.customer_site_name, input.destination,
         input.start_date, input.end_date, input.travel_mode, input.description, input.advance_required,
-        input.requested_amount, submit ? 'PENDING_APPROVAL' : input.status || 'DRAFT']
+        input.requested_amount, nextStatus]
     );
     if (!result.rowCount) return null;
     return this.getById(companyId, id);
@@ -213,21 +235,64 @@ export class FieldAllowanceRepository {
     };
   }
 
-  async decide(input: { companyId: string; requestId: string; approvedBy: string; approverName: string; decision: FieldAllowanceDecision; approvedAmount: number; remarks?: string | null }): Promise<FieldAllowanceRequest | null> {
+  async decide(input: {
+    companyId: string;
+    requestId: string;
+    approvedBy: string;
+    approverName: string;
+    decision: FieldAllowanceDecision;
+    approvedAmount?: number;
+    remarks?: string | null;
+  }): Promise<FieldAllowanceRequest | null> {
     await ensureBalanceReturnSchema();
     return withTransaction(async (client) => {
-      const status: FieldAllowanceStatus = input.decision === 'APPROVED' ? 'APPROVED' : input.decision === 'REJECTED' ? 'REJECTED' : 'CORRECTION_REQUESTED';
+      const current = await this.getById(input.companyId, input.requestId);
+      if (!current) return null;
+
+      let nextStatus: FieldAllowanceStatus;
+      let finalApprovedAmount = Number(current.approved_amount || 0);
+
+      if (input.decision === 'REJECTED') {
+        nextStatus = 'REJECTED';
+      } else if (input.decision === 'CORRECTION_REQUESTED') {
+        nextStatus = 'CORRECTION_REQUESTED';
+      } else {
+        // APPROVED
+        if (current.status === 'CLAIM_SUBMITTED') {
+          // Workflow A: Reimbursement Claim Approved -> moves to PENDING_REIMBURSEMENT
+          nextStatus = 'PENDING_REIMBURSEMENT';
+          finalApprovedAmount = input.approvedAmount !== undefined ? Number(input.approvedAmount) : Number(current.total_spent || 0);
+        } else if (current.status === 'PENDING_SETTLEMENT_VERIFICATION') {
+          // Workflow B: Settlement Approved -> evaluate net balance
+          const net = Number(current.allocated_amount || 0) - Number(current.total_spent || 0);
+          if (net < 0) {
+            // Overspent: Company owes employee reimbursement
+            nextStatus = 'PENDING_REIMBURSEMENT';
+          } else if (net > 0) {
+            // Underspent: Employee owes unspent advance return
+            nextStatus = 'PENDING_RETURN';
+          } else {
+            nextStatus = 'SETTLED';
+          }
+          finalApprovedAmount = input.approvedAmount !== undefined ? Number(input.approvedAmount) : Number(current.total_spent || 0);
+        } else {
+          // Advance request approved -> moves to APPROVED (ready for Accounts distribution)
+          nextStatus = 'APPROVED';
+          finalApprovedAmount = input.approvedAmount !== undefined ? Number(input.approvedAmount) : Number(current.requested_amount || 0);
+        }
+      }
+
       const updated = await client.query(
         `UPDATE public.field_allowance_requests
          SET status = $3,
-             approved_amount = CASE WHEN $3 = 'APPROVED' THEN requested_amount ELSE 0 END,
+             approved_amount = $4,
              updated_at = NOW()
-         WHERE company_id = $1 AND id = $2 AND status = 'PENDING_APPROVAL'
+         WHERE company_id = $1 AND id = $2
          RETURNING id, approved_amount`,
-        [input.companyId, input.requestId, status]
+        [input.companyId, input.requestId, nextStatus, finalApprovedAmount]
       );
       if (!updated.rowCount) return null;
-      const finalApprovedAmount = input.decision === 'APPROVED' ? Number(updated.rows[0]?.approved_amount || 0) : 0;
+
       await client.query(
         `INSERT INTO public.field_allowance_approvals
          (request_id, approved_by, approver_name, decision, approved_amount, remarks)
@@ -238,24 +303,41 @@ export class FieldAllowanceRepository {
     });
   }
 
-  async distribute(input: { companyId: string; requestId: string; distributedBy: string; distributorName: string; distributedAmount: number; distributionDate: string; paymentMethod: string; referenceNumber?: string | null; paymentProofPath?: string | null; remarks?: string | null }): Promise<FieldAllowanceDistribution | null> {
+  async distribute(input: {
+    companyId: string;
+    requestId: string;
+    distributedBy: string;
+    distributorName: string;
+    distributedAmount: number;
+    distributionDate: string;
+    paymentMethod: string;
+    referenceNumber?: string | null;
+    paymentProofPath?: string | null;
+    remarks?: string | null;
+  }): Promise<FieldAllowanceDistribution | null> {
     return withTransaction(async (client) => {
       const locked = await client.query(
-        `SELECT approved_amount, status FROM public.field_allowance_requests WHERE company_id=$1 AND id=$2 FOR UPDATE`,
+        `SELECT approved_amount, status, advance_required, total_spent FROM public.field_allowance_requests WHERE company_id=$1 AND id=$2 FOR UPDATE`,
         [input.companyId, input.requestId]
       );
-      if (!locked.rows[0] || locked.rows[0].status !== 'APPROVED') return null;
-      const already = await client.query('SELECT COALESCE(SUM(distributed_amount),0) AS total FROM public.field_allowance_distributions WHERE request_id=$1', [input.requestId]);
-      if (Number(already.rows[0]?.total || 0) + input.distributedAmount > Number(locked.rows[0].approved_amount)) {
-        throw new Error('Distributed amount cannot exceed the approved amount');
+      if (!locked.rows[0]) return null;
+      const currentStatus = locked.rows[0].status;
+
+      // Allow advance distribution (APPROVED) OR reimbursement payment (PENDING_REIMBURSEMENT)
+      if (!['APPROVED', 'PENDING_REIMBURSEMENT'].includes(currentStatus)) {
+        throw new Error(`Cannot disburse funds for request currently in status ${currentStatus}`);
       }
+
       const created = await client.query(
         `INSERT INTO public.field_allowance_distributions
          (request_id, distributed_by, distributor_name, distributed_amount, distribution_date, payment_method, reference_number, payment_proof_path, remarks)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [input.requestId, input.distributedBy, input.distributorName, input.distributedAmount, input.distributionDate, input.paymentMethod, input.referenceNumber, input.paymentProofPath, input.remarks]
       );
-      await client.query("UPDATE public.field_allowance_requests SET status='AMOUNT_DISTRIBUTED', updated_at=NOW() WHERE id=$1", [input.requestId]);
+
+      // Transition to AMOUNT_DISTRIBUTED for advances, or SETTLED for reimbursement payments
+      const nextStatus = currentStatus === 'PENDING_REIMBURSEMENT' ? 'SETTLED' : 'AMOUNT_DISTRIBUTED';
+      await client.query("UPDATE public.field_allowance_requests SET status=$2, updated_at=NOW() WHERE id=$1", [input.requestId, nextStatus]);
       const row = created.rows[0];
       return { ...row, distributed_amount: Number(row.distributed_amount), distribution_date: dateValue(row.distribution_date), created_at: dateTimeValue(row.created_at) };
     });
@@ -269,7 +351,12 @@ export class FieldAllowanceRepository {
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
         [input.request_id, input.employee_id, input.expense_date, input.category, input.amount, input.description, input.attachment_path]
       );
-      await client.query("UPDATE public.field_allowance_requests SET status='IN_PROGRESS', updated_at=NOW() WHERE id=$1 AND status IN ('APPROVED','AMOUNT_DISTRIBUTED')", [input.request_id]);
+      await client.query(
+        `UPDATE public.field_allowance_requests
+         SET status='IN_PROGRESS', updated_at=NOW()
+         WHERE id=$1 AND status IN ('APPROVED','AMOUNT_DISTRIBUTED','ACTIVE_VISIT')`,
+        [input.request_id]
+      );
       const row = result.rows[0];
       return { ...row, amount: Number(row.amount), expense_date: dateValue(row.expense_date), created_at: dateTimeValue(row.created_at), updated_at: dateTimeValue(row.updated_at) };
     });
@@ -277,10 +364,23 @@ export class FieldAllowanceRepository {
 
   async complete(companyId: string, id: string, employeeId: string): Promise<FieldAllowanceRequest | null> {
     await ensureBalanceReturnSchema();
+    const current = await this.getById(companyId, id);
+    if (!current || current.employee_id !== employeeId) return null;
+
+    let targetStatus: FieldAllowanceStatus;
+    if (!current.advance_required) {
+      // Workflow A: No Advance Required
+      // If expenses were recorded, submit claim for review; otherwise mark settled
+      targetStatus = Number(current.total_spent || 0) > 0 ? 'CLAIM_SUBMITTED' : 'SETTLED';
+    } else {
+      // Workflow B: Advance Required -> Submit for settlement verification
+      targetStatus = 'PENDING_SETTLEMENT_VERIFICATION';
+    }
+
     const result = await query(
-      `UPDATE public.field_allowance_requests SET status='COMPLETED', updated_at=NOW()
-       WHERE company_id=$1 AND id=$2 AND employee_id=$3 AND status IN ('AMOUNT_DISTRIBUTED','IN_PROGRESS','APPROVED') RETURNING id`,
-      [companyId, id, employeeId]
+      `UPDATE public.field_allowance_requests SET status=$4, updated_at=NOW()
+       WHERE company_id=$1 AND id=$2 AND employee_id=$3 AND status IN ('AMOUNT_DISTRIBUTED','IN_PROGRESS','ACTIVE_VISIT','APPROVED') RETURNING id`,
+      [companyId, id, employeeId, targetStatus]
     );
     return result.rowCount ? this.getById(companyId, id) : null;
   }
@@ -341,6 +441,7 @@ export class FieldAllowanceRepository {
     await ensureBalanceReturnSchema();
     const result = await query(
       `UPDATE public.field_allowance_requests SET
+        status = 'SETTLED',
         balance_return_status = 'RECEIVED_BY_ACCOUNTS',
         balance_received_by = $3,
         balance_received_by_name = $4,
@@ -385,10 +486,10 @@ export class FieldAllowanceRepository {
     await ensureBalanceReturnSchema();
     const result = await query(
       `SELECT COUNT(*)::int AS total_requests,
-        COUNT(*) FILTER (WHERE status='PENDING_APPROVAL')::int AS pending_approval,
-        COUNT(*) FILTER (WHERE status IN ('APPROVED','AMOUNT_DISTRIBUTED','IN_PROGRESS','COMPLETED'))::int AS approved_requests,
+        COUNT(*) FILTER (WHERE status IN ('PENDING_APPROVAL', 'PENDING_ADVANCE_APPROVAL', 'CLAIM_SUBMITTED', 'PENDING_SETTLEMENT_VERIFICATION'))::int AS pending_approval,
+        COUNT(*) FILTER (WHERE status IN ('APPROVED','AMOUNT_DISTRIBUTED','ACTIVE_VISIT','IN_PROGRESS','PENDING_REIMBURSEMENT','PENDING_RETURN','COMPLETED','SETTLED'))::int AS approved_requests,
         COALESCE((SELECT SUM(d.distributed_amount) FROM public.field_allowance_distributions d JOIN public.field_allowance_requests x ON x.id=d.request_id WHERE x.company_id=$1),0) AS total_distributed_amount,
-        COUNT(*) FILTER (WHERE status IN ('AMOUNT_DISTRIBUTED','IN_PROGRESS'))::int AS active_trips,
+        COUNT(*) FILTER (WHERE status IN ('AMOUNT_DISTRIBUTED','ACTIVE_VISIT','IN_PROGRESS'))::int AS active_trips,
         COALESCE((SELECT SUM(e.amount) FROM public.field_allowance_daily_reports e JOIN public.field_allowance_requests x ON x.id=e.request_id WHERE x.company_id=$1),0) AS total_spent_amount,
         COALESCE((SELECT SUM(x.returned_amount) FROM public.field_allowance_requests x WHERE x.company_id=$1 AND x.balance_return_status='RECEIVED_BY_ACCOUNTS'),0) AS total_returned_amount
        FROM public.field_allowance_requests WHERE company_id=$1`, [companyId]

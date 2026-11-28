@@ -35,15 +35,35 @@ export const assignCustodianSchema = z.object({
     assignmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 // 2. Reassign Custodian (with mandatory reconciliation)
-export const reassignCustodianSchema = z.object({
-    previousAccountId: z.string().uuid({ message: 'Valid previous account ID is required' }),
+export const reassignCustodianSchema = z
+    .object({
+    previousAccountId: z.string().trim().min(1).optional(),
     newEmployeeId: z.string().trim().min(1, { message: 'New Employee ID is required' }),
     newEmployeeName: z.string().trim().min(1, { message: 'New Employee Name is required' }),
     newEmployeeCode: z.string().trim().min(1, { message: 'New Employee Code is required' }),
     reconciliationNotes: meaningfulTextSchema,
-    physicalCashCounted: z.number().nonnegative({ message: 'Physical cash counted must be zero or positive' }),
-    transferRemainingBalance: z.boolean().default(false),
-});
+    physicalCashCounted: z
+        .number()
+        .nonnegative({ message: 'Physical cash counted must be zero or positive' })
+        .optional(),
+    physicalCashCount: z
+        .number()
+        .nonnegative({ message: 'Physical cash counted must be zero or positive' })
+        .optional(),
+    transferRemainingBalance: z.boolean().optional().default(true),
+    witnessCeoOrAccountsId: z.string().trim().optional(),
+})
+    .refine((data) => data.physicalCashCounted !== undefined || data.physicalCashCount !== undefined, { message: 'Physical cash counted is required', path: ['physicalCashCounted'] })
+    .transform((data) => ({
+    previousAccountId: data.previousAccountId,
+    newEmployeeId: data.newEmployeeId,
+    newEmployeeName: data.newEmployeeName,
+    newEmployeeCode: data.newEmployeeCode,
+    reconciliationNotes: data.reconciliationNotes,
+    physicalCashCounted: data.physicalCashCounted ?? data.physicalCashCount ?? 0,
+    transferRemainingBalance: data.transferRemainingBalance ?? true,
+    witnessCeoOrAccountsId: data.witnessCeoOrAccountsId,
+}));
 // 3. Request Petty Cash
 export const requestPettyCashSchema = z.object({
     requestedAmount: moneySchema,

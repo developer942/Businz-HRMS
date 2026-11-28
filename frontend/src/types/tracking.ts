@@ -32,7 +32,8 @@ export type TripStatus =
   | 'Completed' 
   | 'Auto Closed'
   | 'Attendance Review Required'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Miss Punch Out';
 
 export type GpsDataQuality = 
   | 'Good GPS Data'

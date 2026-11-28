@@ -81,10 +81,22 @@ pettyCashRouter.post(
   (req, res, next) => pettyCashController.reassignCustodian(req, res, next)
 );
 
+pettyCashRouter.post(
+  '/custodian/reconcile',
+  requireRoles(['CEO', 'Super Admin']),
+  (req, res, next) => pettyCashController.reassignCustodian(req, res, next)
+);
+
 pettyCashRouter.get(
   '/custodian/active',
   requirePettyCashParticipant,
   (req, res, next) => pettyCashController.getActiveCustodian(req, res, next)
+);
+
+pettyCashRouter.get(
+  '/custodian/history',
+  requireRoles(['CEO', 'Super Admin', 'Finance Manager', 'Finance', 'Accountant', 'Admin']),
+  (req, res, next) => pettyCashController.getAccountHistory(req, res, next)
 );
 
 // ============================================================

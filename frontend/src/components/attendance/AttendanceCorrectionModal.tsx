@@ -192,7 +192,9 @@ const AttendanceCorrectionModalInner: React.FC<AttendanceCorrectionModalInnerPro
 
     // Automatically resolve whether target status is Present or Late based on effective Check-In time vs Shift
     let statusToSend = selectedStatus;
-    if (statusToSend === 'Present' || statusToSend === 'Late') {
+    if (statusToSend === 'Missing Punch' && checkInTime && checkOutTime) {
+      statusToSend = isCurrentlyLate ? 'Late' : 'Present';
+    } else if (statusToSend === 'Present' || statusToSend === 'Late') {
       statusToSend = isCurrentlyLate ? 'Late' : 'Present';
     }
 

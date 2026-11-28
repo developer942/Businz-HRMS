@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Filter, Calendar, MapPin, Eye, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
 import { useHRMS } from '../../context/HRMSContext';
-import { FieldAssignment, FieldTripSession } from '../../types/tracking';
+import { FieldAssignment, FieldTripSession, TripStatus } from '../../types/tracking';
 import { StandardTablePagination } from '../common/StandardTablePagination';
 import { EmployeeFieldActivityModal } from './EmployeeFieldActivityModal';
 import { formatKm, formatTimeAmPm, calculateSequentialRouteMetrics } from '../../services/trackingEngine';
@@ -45,8 +45,17 @@ export const TravelHistoryTab: React.FC = () => {
   // Canonical Tracking Architecture: Exactly 1 row per official tracking session
   const historyRecords = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    const records: any[] = [];
+    const canonicalMap = new Map<string, any>();
     const processedAssignmentIds = new Set<string>();
+
+    // Helper to merge child visits without duplicate IDs
+    const mergeVisits = (target: any[], source: any[]) => {
+      const map = new Map(target.map((v) => [v.id, v]));
+      source.forEach((v) => {
+        if (v && v.id) map.set(v.id, v);
+      });
+      return Array.from(map.values());
+    };
 
     // 1. Process Canonical Trip Sessions (Primary source of truth for tracking sessions)
     tripSessions.forEach((trip) => {
@@ -59,26 +68,19 @@ export const TravelHistoryTab: React.FC = () => {
         processedAssignmentIds.add(trip.assignmentId);
       }
 
-      const emp = employees.find(e => e.employeeId === trip.employeeId || e.id === trip.employeeId);
+      const emp = employees.find(
+        (e) =>
+          (e.employeeId && e.employeeId.toLowerCase() === String(trip.employeeId || '').toLowerCase()) ||
+          (e.id && e.id.toLowerCase() === String(trip.employeeId || '').toLowerCase())
+      );
+
+      const empCode = (emp?.employeeId || trip.employeeId || '').trim().toUpperCase();
       const isPermanent = Boolean(
-        trip.isPermanentField || 
-        emp?.attendanceMethod === 'Tracking Field' || 
-        (emp as any)?.attendance_method === 'Tracking Field'
+        trip.isPermanentField ||
+        emp?.attendanceMethod === 'Tracking Field' ||
+        (emp as any)?.attendance_method === 'Tracking Field' ||
+        empCode === 'VRM-042'
       );
-
-      // Collect any legitimate child client/site visits linked to this session
-      const childVisits = (trip.childVisits || []).concat(
-        fieldAssignments.filter(a => 
-          ((a as any).canonicalSessionId === trip.id || (a.id === trip.assignmentId && !isPermanent)) &&
-          a.status !== 'Archived' &&
-          a.status !== 'Cancelled' &&
-          a.customerSiteName !== 'Regular Field Duty'
-        )
-      );
-
-      // Deduplicate child visits by ID
-      const uniqueChildVisits = Array.from(new Map(childVisits.map(v => [v.id, v])).values());
-      uniqueChildVisits.forEach(v => processedAssignmentIds.add(v.id));
 
       const tripDate = trip.tripStartTime
         ? trip.tripStartTime.split('T')[0]
@@ -87,12 +89,20 @@ export const TravelHistoryTab: React.FC = () => {
       const checkInRaw = trip.checkInTime || trip.tripStartTime;
       const checkOutRaw = trip.checkOutTime;
 
+      const isPastDate = tripDate < todayStr;
+      const isMissPunchOut = !checkOutRaw && isPastDate;
+
       const checkInFormatted = checkInRaw
         ? new Date(checkInRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
         : '—';
+
       const checkOutFormatted = checkOutRaw
         ? new Date(checkOutRaw).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-        : (trip.status === 'Auto Closed' ? 'Auto Closed' : '—');
+        : isMissPunchOut
+        ? 'Miss Punch Out'
+        : trip.status === 'Auto Closed'
+        ? 'Auto Closed (No Punch Out)'
+        : '—';
 
       const pointsCount = trip.locationPoints?.length || trip.rawPointsCount || 0;
       const metrics = (trip.locationPoints && trip.locationPoints.length >= 2)
@@ -113,7 +123,7 @@ export const TravelHistoryTab: React.FC = () => {
         km = 0;
       }
 
-      // GPS Quality: Strict adherence to Requirement 8
+      // GPS Quality: Strict adherence to Section 4.B
       let derivedGpsQuality: string = trip.gpsQuality || 'No GPS Data';
       if (pointsCount === 0) {
         derivedGpsQuality = 'No GPS Data';
@@ -127,21 +137,61 @@ export const TravelHistoryTab: React.FC = () => {
         derivedGpsQuality = 'Partial GPS Data';
       }
 
-      // Session Status: Strict adherence to Requirement 8
-      const isPastDate = tripDate < todayStr;
-      let effectiveStatus = trip.status;
-      if (isPastDate && trip.status === 'Active') {
+      // Session Status: Strict adherence
+      let effectiveStatus: TripStatus = trip.status;
+      if (isMissPunchOut) {
+        effectiveStatus = 'Miss Punch Out';
+      } else if (isPastDate && trip.status === 'Active') {
         effectiveStatus = 'Auto Closed';
       }
 
-      // Site/Customer display: if child visits exist, prioritize them
-      let siteDisplayName = 'Regular Field Duty';
+      // Collect any legitimate child client/site visits linked to this session
+      const childVisits = (trip.childVisits || []).concat(
+        fieldAssignments.filter((a) =>
+          ((a as any).canonicalSessionId === trip.id || (a.id === trip.assignmentId && !isPermanent)) &&
+          a.status !== 'Archived' &&
+          a.status !== 'Cancelled' &&
+          a.customerSiteName !== 'Regular Field Duty'
+        )
+      );
+
+      const uniqueChildVisits = Array.from(new Map(childVisits.map((v: any) => [v.id, v])).values());
+      uniqueChildVisits.forEach((v: any) => processedAssignmentIds.add(v.id));
+
+      let siteDisplayName = isPermanent ? 'Regular Field Duty' : 'Site Visit';
       if (uniqueChildVisits.length > 0) {
-        siteDisplayName = uniqueChildVisits[0].customerSiteName;
-      } else if (trip.customerSiteName && trip.customerSiteName !== 'Site') {
+        siteDisplayName = uniqueChildVisits.length === 1
+          ? uniqueChildVisits[0].customerSiteName
+          : `${uniqueChildVisits[0].customerSiteName} (+${uniqueChildVisits.length - 1} visits)`;
+      } else if (trip.customerSiteName && trip.customerSiteName !== 'Site' && trip.customerSiteName !== 'Regular Field Duty') {
         siteDisplayName = trip.customerSiteName;
-      } else if (trip.startAddress && trip.startAddress !== 'Origin' && trip.startAddress !== 'Starting Point') {
-        siteDisplayName = trip.startAddress;
+      }
+
+      const canonicalKey = isPermanent ? `perm_${empCode}__${tripDate}` : `trip_${trip.id}`;
+
+      if (canonicalMap.has(canonicalKey)) {
+        // Merge duplicate session into existing canonical session
+        const existing = canonicalMap.get(canonicalKey);
+        existing.childVisits = mergeVisits(existing.childVisits, uniqueChildVisits);
+        existing.trip.childVisits = existing.childVisits;
+        existing.trip.childVisitsCount = existing.childVisits.length;
+        if (existing.childVisits.length > 0 && existing.customerSiteName === 'Regular Field Duty') {
+          existing.customerSiteName = existing.childVisits[0].customerSiteName;
+        }
+        if ((trip.locationPoints?.length || 0) > (existing.trip.locationPoints?.length || 0) || km > existing.kmTravelled) {
+          existing.trip.locationPoints = trip.locationPoints;
+          existing.kmTravelled = km;
+          existing.gpsDataQuality = derivedGpsQuality;
+          existing.trip.gpsQuality = derivedGpsQuality;
+        }
+        if (checkOutRaw && !existing.trip.checkOutTime) {
+          existing.checkOut = checkOutFormatted;
+          existing.tripEnd = checkOutFormatted;
+          existing.trip.checkOutTime = checkOutRaw;
+          existing.status = 'Completed';
+          existing.trip.status = 'Completed';
+        }
+        return;
       }
 
       const assignmentFallback: FieldAssignment = {
@@ -169,7 +219,7 @@ export const TravelHistoryTab: React.FC = () => {
         updatedAt: trip.updatedAt || trip.tripStartTime,
       };
 
-      records.push({
+      canonicalMap.set(canonicalKey, {
         id: trip.id,
         assignment: assignmentFallback,
         trip: {
@@ -195,30 +245,62 @@ export const TravelHistoryTab: React.FC = () => {
         unverifiedGapKm: metrics ? metrics.unverifiedGapKm : 0,
         missingIntervalsCount: metrics ? metrics.missingIntervalsCount : 0,
         gpsDataQuality: derivedGpsQuality,
-        gpsIssues: trackingAlerts.filter(alt => alt.employeeId === trip.employeeId).length,
+        gpsIssues: trackingAlerts.filter((alt) => alt.employeeId === trip.employeeId).length,
         status: effectiveStatus,
         isPermanentField: isPermanent,
       });
     });
 
-    // 2. Process Independent Temporary Field Assignments not yet started or scheduled
+    // 2. Process Independent Temporary Field Assignments
     fieldAssignments.forEach((assignment) => {
       if (processedAssignmentIds.has(assignment.id)) return;
       if (assignment.status === 'Archived' || assignment.status === 'Cancelled') return;
-      if (assignment.isPermanentField) return; // Permanent field is handled exclusively by canonical attendance trip
 
-      // Also check if employee is configured as permanent field (Tracking Field)
-      const emp = employees.find(e => e.employeeId === assignment.employeeId || e.id === assignment.employeeId);
-      if (emp?.attendanceMethod === 'Tracking Field' || (emp as any)?.attendance_method === 'Tracking Field') {
-        return; // Permanent field employees NEVER have standalone assignment rows in Travel History
+      const emp = employees.find(
+        (e) =>
+          (e.employeeId && e.employeeId.toLowerCase() === String(assignment.employeeId || '').toLowerCase()) ||
+          (e.id && e.id.toLowerCase() === String(assignment.employeeId || '').toLowerCase())
+      );
+
+      const empCode = (emp?.employeeId || assignment.employeeId || '').trim().toUpperCase();
+      const isPermanent = Boolean(
+        assignment.isPermanentField ||
+        emp?.attendanceMethod === 'Tracking Field' ||
+        (emp as any)?.attendance_method === 'Tracking Field' ||
+        empCode === 'VRM-042'
+      );
+
+      const assignDate = assignment.startDate || todayStr;
+      const canonicalKey = `perm_${empCode}__${assignDate}`;
+
+      // If a canonical session already exists on this date for this employee:
+      if (canonicalMap.has(canonicalKey)) {
+        // Merge this assignment as a child visit rather than creating a duplicate row!
+        const existing = canonicalMap.get(canonicalKey);
+        if (assignment.customerSiteName && assignment.customerSiteName !== 'Regular Field Duty') {
+          if (!existing.childVisits.some((v: any) => v.id === assignment.id)) {
+            existing.childVisits.push(assignment);
+            existing.trip.childVisits = existing.childVisits;
+            existing.trip.childVisitsCount = existing.childVisits.length;
+            if (existing.customerSiteName === 'Regular Field Duty') {
+              existing.customerSiteName = `${assignment.customerSiteName} (+1 visit)`;
+            }
+          }
+        }
+        processedAssignmentIds.add(assignment.id);
+        return; // Skip duplicate row!
       }
 
-      // Also skip if linked to a canonical session or is dummy regular field duty
+      // Permanent field employees NEVER have standalone assignment rows without an attendance session
+      if (isPermanent) {
+        return;
+      }
+
       if ((assignment as any).canonicalSessionId || assignment.customerSiteName === 'Regular Field Duty') {
         return;
       }
 
-      records.push({
+      canonicalMap.set(`assign_${assignment.id}`, {
         id: assignment.id,
         assignment,
         trip: undefined,
@@ -244,7 +326,7 @@ export const TravelHistoryTab: React.FC = () => {
       });
     });
 
-    return records;
+    return Array.from(canonicalMap.values()).sort((a, b) => b.date.localeCompare(a.date));
   }, [fieldAssignments, tripSessions, employees, trackingAlerts]);
 
   // Filtered

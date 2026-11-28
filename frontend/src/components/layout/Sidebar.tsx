@@ -1,18 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useHRMS } from '../../context/HRMSContext';
 import { ModuleName } from '../../types/hrms';
-import { 
-  LayoutDashboard, 
-  Users, 
-  ScanFace, 
-  CalendarCheck, 
-  CalendarDays, 
-  Clock, 
-  TrendingUp, 
-  CheckSquare, 
-  Briefcase, 
-  IndianRupee, 
-  CreditCard, 
+import {
+  LayoutDashboard,
+  Users,
+  ScanFace,
+  CalendarCheck,
+  CalendarDays,
+  Clock,
+  TrendingUp,
+  CheckSquare,
+  Briefcase,
+  IndianRupee,
+  CreditCard,
   Settings as SettingsIcon,
   Laptop,
   ChevronsLeft,
@@ -54,10 +54,10 @@ interface MenuItem {
   section: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ 
-  isCollapsed = true, 
-  toggleSidebar, 
-  isPinned = false, 
+export const Sidebar: React.FC<SidebarProps> = ({
+  isCollapsed = true,
+  toggleSidebar,
+  isPinned = false,
   isMobileOpen = false,
   onCloseMobile,
   onTogglePin,
@@ -95,10 +95,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const effectiveExpanded = isMobileOpen || isPinned || isHovered || isSearchActive;
   const effectiveCollapsed = !effectiveExpanded;
 
-  const { 
-    activeModule, 
-    setActiveModule, 
-    hasPermission, 
+  const {
+    activeModule,
+    setActiveModule,
+    hasPermission,
     currentUser,
     businessSettings,
     tasks = [],
@@ -125,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (acc) {
         setActiveCustodianId(acc.custodian_id || acc.custodian_employee_id);
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // Keyboard shortcut (⌘K / Ctrl+K) to quickly focus sidebar search, Escape to close
@@ -161,30 +161,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const isHRorAdmin = 
-    currentUser.role === 'Super Admin' || 
-    currentUser.role === 'Admin' || 
-    currentUser.role === 'CEO' || 
-    currentUser.role === 'HR Admin' || 
-    currentUser.role === 'HR Manager' || 
-    currentUser.role === 'HR' || 
-    currentUser.role === 'Management' || 
+  const isHRorAdmin =
+    currentUser.role === 'Super Admin' ||
+    currentUser.role === 'Admin' ||
+    currentUser.role === 'CEO' ||
+    currentUser.role === 'HR Admin' ||
+    currentUser.role === 'HR Manager' ||
+    currentUser.role === 'HR' ||
+    currentUser.role === 'Management' ||
     currentUser.role === 'ERP Administrator' ||
     (currentUser.department && (currentUser.department.toLowerCase() === 'hr' || currentUser.department.toLowerCase() === 'human resources')) ||
     (currentUser.designation && currentUser.designation.toLowerCase().includes('hr')) ||
     currentUser.designation === 'CEO' ||
     (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo'));
 
-  const isAccountsStaff = 
+  const isAccountsStaff =
     currentUser.role === 'Finance Manager' ||
     (currentUser.department && (currentUser.department.toLowerCase().includes('accounts') || currentUser.department.toLowerCase().includes('finance'))) ||
     (currentUser.designation && (currentUser.designation.toLowerCase().includes('account') || currentUser.designation.toLowerCase().includes('finance')));
 
-  const isCEO = 
-    currentUser.role === 'CEO' || 
-    currentUser.role === 'Super Admin' || 
-    currentUser.designation === 'CEO' || 
-    (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) || 
+  const isCEO =
+    currentUser.role === 'CEO' ||
+    currentUser.role === 'Super Admin' ||
+    currentUser.designation === 'CEO' ||
+    (currentUser.designation && currentUser.designation.toLowerCase().includes('ceo')) ||
     currentUser.employeeId === 'EMP-000' ||
     currentUser.employeeId === 'VRM-001';
 
@@ -198,60 +198,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'face_attendance', label: 'Live Face Attendance', icon: ScanFace, section: 'TIME & ATTENDANCE' },
     { id: 'attendance_log', label: 'Attendance Log', icon: History, section: 'TIME & ATTENDANCE' },
     { id: 'attendance', label: 'Attendance Report', icon: CalendarCheck, section: 'TIME & ATTENDANCE' },
-    { 
-      id: 'leaves', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Leave Request' : 'Leave Management', 
-      icon: CalendarDays, 
-      section: 'TIME & ATTENDANCE' 
+    {
+      id: 'leaves',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Leave Request' : 'Leave Management',
+      icon: CalendarDays,
+      section: 'TIME & ATTENDANCE'
     },
-    { 
-      id: 'shifts', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Shift' : 'Shift Management', 
-      icon: Clock, 
-      section: 'TIME & ATTENDANCE' 
+    {
+      id: 'shifts',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Shift' : 'Shift Management',
+      icon: Clock,
+      section: 'TIME & ATTENDANCE'
     },
 
     { id: 'tasks', label: 'Tasks', icon: CheckSquare, section: 'WORKFLOW & OPS' },
     { id: 'tracking', label: 'Tracking', icon: MapPin, section: 'WORKFLOW & OPS' },
     { id: 'customer_data', label: 'Contact Card Scanner', icon: Contact2, section: 'WORKFLOW & OPS' },
     { id: 'whatsapp_crm', label: 'WhatsApp CRM', icon: MessageSquare, section: 'WORKFLOW & OPS' },
-    { 
-      id: 'performance', 
-      label: isCEO ? 'Performance' : 'My Performance', 
-      icon: TrendingUp, 
-      section: 'WORKFLOW & OPS' 
+    {
+      id: 'performance',
+      label: isCEO ? 'Performance' : 'My Performance',
+      icon: TrendingUp,
+      section: 'WORKFLOW & OPS'
     },
-    { 
-      id: 'recruitment', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Referral Portal' : 'Recruitment', 
-      icon: Briefcase, 
-      section: 'WORKFLOW & OPS' 
+    {
+      id: 'recruitment',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'Referral Portal' : 'Recruitment',
+      icon: Briefcase,
+      section: 'WORKFLOW & OPS'
     },
 
     // Finance & Payroll
-    { 
-      id: 'accounts_payment', 
-      label: 'Payment Disbursement', 
-      icon: Receipt, 
-      section: 'FINANCE & PAYROLL' 
+    {
+      id: 'accounts_payment',
+      label: 'Payment Disbursement',
+      icon: Receipt,
+      section: 'FINANCE & PAYROLL'
     },
     {
       id: 'field_allowance',
-      label: 'Finance and Claim',
+      label: 'Finance and Claims',
       icon: IndianRupee,
       section: 'FINANCE & PAYROLL'
     },
-    { 
-      id: 'payroll', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Payslip' : 'Payroll', 
-      icon: CreditCard, 
-      section: 'FINANCE & PAYROLL' 
+    {
+      id: 'payroll',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Payslip' : 'Payroll',
+      icon: CreditCard,
+      section: 'FINANCE & PAYROLL'
     },
-    { 
-      id: 'advance_salary', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Advance Salary' : 'Advance Salary Management', 
-      icon: Banknote, 
-      section: 'FINANCE & PAYROLL' 
+    {
+      id: 'advance_salary',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Advance Salary' : 'Advance Salary Management',
+      icon: Banknote,
+      section: 'FINANCE & PAYROLL'
     },
     {
       id: 'petty_cash',
@@ -261,11 +261,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
 
     // Workspace & Reports
-    { 
-      id: 'assets', 
-      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Assets' : 'Asset Management', 
-      icon: Laptop, 
-      section: 'WORKSPACE & REPORTS' 
+    {
+      id: 'assets',
+      label: (currentUser.role === 'Employee' || isAccountsStaff) && !isHRorAdmin ? 'My Assets' : 'Asset Management',
+      icon: Laptop,
+      section: 'WORKSPACE & REPORTS'
     },
 
     // System & Config
@@ -300,7 +300,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const status = (t as any).overallStatus || (t as any).status || '';
       if (status === 'Completed' || status === 'COMPLETED' || status === 'CLOSED' || status === 'CANCELLED') return false;
       const isResponsible = (t as any).responsiblePersonId?.toLowerCase() === myEmpId;
-      const isAssignee = (t as any).assignees?.some((a: any) => 
+      const isAssignee = (t as any).assignees?.some((a: any) =>
         (a.employeeId?.toLowerCase() === myEmpId || a.employeeEmail?.toLowerCase() === myEmail) &&
         a.individualStatus !== 'Completed'
       );
@@ -317,14 +317,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     if (isDeptManager && currentUser.department) {
       const myDept = currentUser.department.toLowerCase();
-      return leaveRequests.filter(l => 
-        l.status === 'Pending' && 
+      return leaveRequests.filter(l =>
+        l.status === 'Pending' &&
         ((l.department || '').toLowerCase() === myDept || (l as any).reportingManagerId?.toLowerCase() === myEmpId)
       ).length;
     }
     // Employee: their own pending submitted requests
-    return leaveRequests.filter(l => 
-      l.status === 'Pending' && 
+    return leaveRequests.filter(l =>
+      l.status === 'Pending' &&
       (l.employeeId?.toLowerCase() === myEmpId || (l as any).employeeEmail?.toLowerCase() === myEmail)
     ).length;
   })();
@@ -333,17 +333,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pendingAttendanceCount = (() => {
     const pendingMissed = (missedPunchRequests || []).filter(r => r.status === 'Pending');
     const pendingOt = (overtimeRequests || []).filter(r => r.status === 'Pending Approval');
-    
+
     if (isCEO || currentUser.role === 'Super Admin' || isHRorAdmin) {
       return pendingMissed.length + pendingOt.length;
     }
     if (isDeptManager && currentUser.department) {
       const myDept = currentUser.department.toLowerCase();
       return pendingMissed.filter(r => (r.department || '').toLowerCase() === myDept).length +
-             pendingOt.filter(r => (r.department || '').toLowerCase() === myDept).length;
+        pendingOt.filter(r => (r.department || '').toLowerCase() === myDept).length;
     }
     return pendingMissed.filter(r => r.employeeId?.toLowerCase() === myEmpId).length +
-           pendingOt.filter(r => r.employeeId?.toLowerCase() === myEmpId).length;
+      pendingOt.filter(r => r.employeeId?.toLowerCase() === myEmpId).length;
   })();
 
   // 4. Shifts: Pending shift change / swap requests
@@ -359,30 +359,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const pendingExpensesCount = (() => {
     if (!expenses || expenses.length === 0) return 0;
     if (isCEO || currentUser.role === 'Super Admin' || isAccountsStaff || isHRorAdmin) {
-      return expenses.filter(e => 
-        e.status === 'Pending Manager' || 
+      return expenses.filter(e =>
+        e.status === 'Pending Manager' ||
         e.status === 'Pending Finance'
       ).length;
     }
     if (isDeptManager && currentUser.department) {
       const myDept = currentUser.department.toLowerCase();
-      return expenses.filter(e => 
-        e.status === 'Pending Manager' && 
+      return expenses.filter(e =>
+        e.status === 'Pending Manager' &&
         (e.department || '').toLowerCase() === myDept
       ).length;
     }
-    return expenses.filter(e => 
+    return expenses.filter(e =>
       (e.status === 'Pending Manager' || e.status === 'Pending Finance') &&
       e.employeeId?.toLowerCase() === myEmpId
     ).length;
   })();
 
-  // 6. Payment Disbursement: Approved claims/loans awaiting disbursement
-  const pendingDisbursementsCount = (isAccountsStaff || isCEO || currentUser.role === 'Super Admin')
+  // 6. Payment Disbursement: Approved claims/loans awaiting disbursement (Accounts only)
+  const pendingDisbursementsCount = (isAccountsStaff && !isCEO)
     ? (
-        (expenses || []).filter(e => e.status === 'Approved').length +
-        (loanRecords || []).filter(l => l.status === 'Approved').length
-      )
+      (expenses || []).filter(e => e.status === 'Approved').length +
+      (loanRecords || []).filter(l => l.status === 'Approved').length
+    )
     : 0;
 
   // 7. Advance Salary: Pending loan/advance requests
@@ -413,7 +413,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       if (n.read) return false;
       const linkMatch = n.link === id;
       const cat = String(n.category || '').toLowerCase();
-      const catMatch = 
+      const catMatch =
         (id === 'leaves' && cat.includes('leave')) ||
         (id === 'tasks' && cat.includes('task')) ||
         (id === 'field_allowance' && (cat.includes('finance') || cat.includes('expense') || cat.includes('allowance') || cat.includes('claim'))) ||
@@ -435,8 +435,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Filter menu items by search query and RBAC permissions
   const filteredItems = menuStructure.filter(item => {
     // CEO and Super Admin have unrestricted access to all modules except the employee face punching station
+    // and the Accounts-only Payment Disbursement desk.
     if (isCEO) {
-      if (item.id === 'face_attendance') return false;
+      if (item.id === 'face_attendance' || item.id === 'accounts_payment') return false;
       if (!searchFilter.trim()) return true;
       const query = searchFilter.toLowerCase().trim();
       return item.label.toLowerCase().includes(query) || item.section.toLowerCase().includes(query);
@@ -455,8 +456,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     }
 
-    // Restrict Accounts Payment Disbursement strictly to Accounts staff and CEO
-    if (item.id === 'accounts_payment' && !(isCEO || isAccountsStaff)) {
+    // Restrict Accounts Payment Disbursement strictly to Accounts staff only
+    if (item.id === 'accounts_payment' && (!isAccountsStaff || isCEO)) {
       return false;
     }
 
@@ -492,7 +493,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="sidebar-mobile-content">
           {/* Header */}
           <div className="sidebar-mobile-header">
-            <div 
+            <div
               className="sidebar-mobile-brand"
               onClick={() => {
                 setActiveModule('dashboard');
@@ -500,17 +501,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               style={{ cursor: 'pointer' }}
             >
-              <img 
-                src={businessSettings?.logoUrl || "/logo.png"} 
-                alt="Logo" 
-                className="sidebar-mobile-logo" 
+              <img
+                src={businessSettings?.logoUrl || "/logo.png"}
+                alt="Logo"
+                className="sidebar-mobile-logo"
               />
               <span className="sidebar-mobile-brand-title">
                 {businessSettings?.businessName || 'BUSINZ'} <span style={{ color: '#0E7490' }}>HRMS</span>
               </span>
             </div>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="sidebar-mobile-close-btn"
               onClick={onCloseMobile}
               aria-label="Close Menu"
@@ -520,7 +521,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* User Profile Snippet Card (Matches Reference Mockup) */}
-          <div 
+          <div
             className="sidebar-mobile-user-card"
             onClick={() => {
               setActiveModule('profile');
@@ -545,9 +546,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Search Box */}
           <div className="sidebar-mobile-search-box" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <Search 
-              size={16} 
-              color="#64748B" 
+            <Search
+              size={16}
+              color="#64748B"
               style={{
                 position: 'absolute',
                 left: '14px',
@@ -557,7 +558,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 zIndex: 2
               }}
             />
-            <input 
+            <input
               type="text"
               placeholder="Search menu..."
               value={searchFilter}
@@ -570,9 +571,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
             />
             {searchFilter && (
-              <button 
-                type="button" 
-                onClick={() => setSearchFilter('')} 
+              <button
+                type="button"
+                onClick={() => setSearchFilter('')}
                 className="sidebar-mobile-search-clear"
                 aria-label="Clear Search"
                 style={{
@@ -660,7 +661,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
 
   return (
-    <aside 
+    <aside
       className={`hrms-sidebar ${effectiveCollapsed ? 'collapsed' : ''} ${isMobileOpen ? 'mobile-open' : ''}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -668,18 +669,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Company Card */}
       {effectiveExpanded ? (
         <div className="sidebar-top-card">
-          <div 
-            className="sidebar-brand-wrapper" 
+          <div
+            className="sidebar-brand-wrapper"
             onClick={() => {
               setActiveModule('dashboard');
               onCloseMobile?.();
-            }} 
+            }}
             title="Go to Dashboard"
           >
-            <img 
-              src={businessSettings?.logoUrl || "/logo.png"} 
-              alt={`${businessSettings?.businessName || 'Businz'} Logo`} 
-              className="sidebar-logo-img" 
+            <img
+              src={businessSettings?.logoUrl || "/logo.png"}
+              alt={`${businessSettings?.businessName || 'Businz'} Logo`}
+              className="sidebar-logo-img"
               style={{ width: '40px', height: '40px', objectFit: 'contain', border: 'none', background: 'transparent', padding: 0 }}
             />
             <div className="sidebar-brand-details">
@@ -692,7 +693,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
           {isMobileOpen && onCloseMobile ? (
-            <button 
+            <button
               className="sidebar-mobile-close-btn"
               onClick={onCloseMobile}
               title="Close Menu"
@@ -701,7 +702,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <X size={18} strokeWidth={2.5} />
             </button>
           ) : onTogglePin && (
-            <button 
+            <button
               className={`sidebar-pin-btn ${isPinned ? 'pinned' : ''}`}
               onClick={onTogglePin}
               title={isPinned ? 'Unpin Sidebar (Auto-fold on mouse leave)' : 'Pin Sidebar Open'}
@@ -713,29 +714,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       ) : (
         <div className="sidebar-top-collapsed">
-          <div 
+          <div
             onClick={() => {
               setActiveModule('dashboard');
               onCloseMobile?.();
-            }} 
+            }}
             title="Enterprise Dashboard (Hover to expand)"
-            style={{ 
-              cursor: 'pointer', 
-              width: '44px', 
-              height: '44px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              padding: 0, 
-              backgroundColor: 'transparent', 
-              border: 'none', 
-              boxShadow: 'none' 
+            style={{
+              cursor: 'pointer',
+              width: '44px',
+              height: '44px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              backgroundColor: 'transparent',
+              border: 'none',
+              boxShadow: 'none'
             }}
           >
-            <img 
-              src={businessSettings?.logoUrl || "/logo.png"} 
-              alt="Logo" 
-              style={{ width: '40px', height: '40px', objectFit: 'contain', border: 'none', background: 'transparent' }} 
+            <img
+              src={businessSettings?.logoUrl || "/logo.png"}
+              alt="Logo"
+              style={{ width: '40px', height: '40px', objectFit: 'contain', border: 'none', background: 'transparent' }}
             />
           </div>
         </div>
@@ -745,7 +746,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {effectiveExpanded ? (
         <div className="sidebar-search-box">
           <Search size={16} color="#64748B" strokeWidth={2.2} />
-          <input 
+          <input
             ref={searchInputRef}
             type="text"
             className="sidebar-search-input"
@@ -780,7 +781,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ) : (
         /* 2nd Item in Collapsed Sidebar */
         <div className="sidebar-search-collapsed-wrapper">
-          <button 
+          <button
             type="button"
             className={`sidebar-search-collapsed-btn ${searchFilter ? 'has-filter' : ''}`}
             onClick={() => {

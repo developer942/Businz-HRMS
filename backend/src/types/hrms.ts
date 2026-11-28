@@ -151,7 +151,26 @@ export interface LeaveRecord {
   employeeId: string;
   employeeName?: string;
   department?: string;
-  leaveType: 'Casual' | 'Casual Leave' | 'Sick' | 'Sick Leave' | 'Earned' | 'Earned Leave' | 'Paid Leave' | 'Emergency' | 'Emergency Leave' | 'Maternity' | 'Paternity' | 'Unpaid' | 'Unpaid Leave' | 'Work From Home';
+  leaveType:
+    | 'Casual'
+    | 'Casual Leave'
+    | 'Casual Leave (CL)'
+    | 'Sick'
+    | 'Sick Leave'
+    | 'Sick Leave (SL)'
+    | 'Earned'
+    | 'Earned Leave'
+    | 'Earned Leave (EL)'
+    | 'Paid Leave'
+    | 'Emergency'
+    | 'Emergency Leave'
+    | 'Maternity'
+    | 'Paternity'
+    | 'Unpaid'
+    | 'Unpaid Leave'
+    | 'Unpaid Leave (LWP)'
+    | 'Compensatory Off'
+    | 'Work From Home';
   startDate: string; // YYYY-MM-DD
   endDate: string;   // YYYY-MM-DD
   daysCount: number;

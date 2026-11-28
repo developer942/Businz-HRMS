@@ -43,6 +43,7 @@ const ALLOWED_TABLES = new Set([
 const PRIVILEGED_ROLES = new Set([
     'Super Admin',
     'CEO',
+    'HR',
     'HR Manager',
     'HR Admin',
     'Finance Manager',
@@ -54,6 +55,7 @@ export const isCompanyWideGatewayRole = (role) => PRIVILEGED_ROLES.has(role);
 const HR_ADMIN_ROLES = new Set([
     'Super Admin',
     'CEO',
+    'HR',
     'HR Manager',
     'HR Admin',
     'Management',
@@ -63,9 +65,12 @@ const HR_ADMIN_ROLES = new Set([
 const FINANCE_ADMIN_ROLES = new Set([
     'Super Admin',
     'CEO',
+    'HR',
     'HR Manager',
     'HR Admin',
     'Finance Manager',
+    'Accounts',
+    'Accountant',
     'Management',
     'ERP Administrator',
 ]);
@@ -121,7 +126,7 @@ function sanitizeEmployeeRowForDirectory(row, isSelfOrPrivileged) {
     }
     return copy;
 }
-function sanitizeCompanySettingsRow(row, isPrivileged, callerEmpCode, callerUuid) {
+function sanitizeCompanySettingsRow(row, isPrivileged, isFinanceAdmin, callerEmpCode, callerUuid) {
     if (!row || typeof row !== 'object')
         return row;
     const copy = { ...row };
@@ -160,25 +165,165 @@ function sanitizeCompanySettingsRow(row, isPrivileged, callerEmpCode, callerUuid
         }
         copy.setting_val = cleanedMap;
     }
+    else if (copy.setting_key === 'payroll_records_data' && Array.isArray(copy.setting_val)) {
+        if (!isPrivileged && !isFinanceAdmin) {
+            copy.setting_val = copy.setting_val.filter((entry) => {
+                if (!entry || typeof entry !== 'object')
+                    return false;
+                const empId = String(entry.employeeId || entry.employee_id || '').trim().toLowerCase();
+                return Boolean((callerEmpCode && empId === callerEmpCode) ||
+                    (callerUuid && empId === callerUuid));
+            });
+        }
+    }
     return copy;
 }
 async function resolveCallerIdentifiers(req) {
     let callerEmpCode = String(req.user?.employeeId || '').trim().toLowerCase();
     let callerUuid = String(req.user?.id || '').trim().toLowerCase();
     const callerEmail = String(req.user?.email || '').trim().toLowerCase();
+    let callerName = String(req.user?.name || '').trim().toLowerCase();
+    let callerDepartment = String(req.user?.department || '').trim().toLowerCase();
+    let callerDesignation = String(req.user?.designation || '').trim().toLowerCase();
     try {
-        const res = await query(`SELECT id, employee_id FROM public.employees WHERE (LOWER(employee_id) = $1 AND $1 <> '') OR (LOWER(email) = $2 AND $2 <> '') OR id::text = $3 LIMIT 1`, [callerEmpCode, callerEmail, callerUuid]);
+        const res = await query(`SELECT e.id, e.employee_id, e.first_name, e.last_name, e.designation, d.name AS department_name
+       FROM public.employees e
+       LEFT JOIN public.departments d ON d.id = e.department_id
+       WHERE (LOWER(e.employee_id) = $1 AND $1 <> '') OR (LOWER(e.email) = $2 AND $2 <> '') OR e.id::text = $3
+       LIMIT 1`, [callerEmpCode, callerEmail, callerUuid]);
         if (res.rows[0]?.id) {
             callerUuid = String(res.rows[0].id).toLowerCase();
         }
         if (!callerEmpCode && res.rows[0]?.employee_id) {
             callerEmpCode = String(res.rows[0].employee_id).toLowerCase();
         }
+        if (res.rows[0]) {
+            const dbFullName = `${res.rows[0].first_name || ''} ${res.rows[0].last_name || ''}`.trim().toLowerCase();
+            if (dbFullName)
+                callerName = dbFullName;
+            if (res.rows[0].department_name) {
+                callerDepartment = String(res.rows[0].department_name).trim().toLowerCase();
+            }
+            if (res.rows[0].designation) {
+                callerDesignation = String(res.rows[0].designation).trim().toLowerCase();
+            }
+        }
     }
     catch {
         // Ignore lookup fallback errors in mock/test environments
     }
-    return { callerEmpCode, callerUuid };
+    return { callerEmpCode, callerUuid, callerName, callerDepartment, callerDesignation };
+}
+export function resolveEffectiveGatewayRoles(params) {
+    const roleTrim = String(params.userRole || '').trim();
+    const roleLower = roleTrim.toLowerCase();
+    const empUpper = String(params.callerEmpCode || '').trim().toUpperCase();
+    const deptLower = String(params.callerDepartment || '').trim().toLowerCase();
+    const desigLower = String(params.callerDesignation || '').trim().toLowerCase();
+    const isCeoUser = roleLower === 'ceo' ||
+        roleLower === 'super admin' ||
+        roleLower === 'management' ||
+        roleLower === 'erp administrator' ||
+        desigLower === 'ceo' ||
+        desigLower.includes('chief executive') ||
+        desigLower.includes('managing director') ||
+        empUpper === 'EMP-000' ||
+        empUpper === 'VRM-001';
+    const isHrAdmin = isCeoUser ||
+        HR_ADMIN_ROLES.has(roleTrim) ||
+        deptLower === 'hr' ||
+        deptLower.includes('human resource') ||
+        desigLower.includes('hr manager') ||
+        desigLower.includes('hr admin') ||
+        /\bhr\b/.test(desigLower);
+    const isFinanceAdmin = isHrAdmin ||
+        FINANCE_ADMIN_ROLES.has(roleTrim) ||
+        deptLower.includes('account') ||
+        deptLower.includes('finance') ||
+        desigLower.includes('account') ||
+        desigLower.includes('finance');
+    const isPrivileged = isCompanyWideGatewayRole(roleTrim) || isCeoUser || isHrAdmin;
+    return { isCeoUser, isHrAdmin, isFinanceAdmin, isPrivileged };
+}
+/**
+ * Safely merges incoming `loan_records_data` writes with authoritative existing DB records so:
+ * 1. Stale browser/mobile snapshots or empty-sync glitches can NEVER wipe existing advance requests.
+ * 2. Standard employees can only append their own new `Pending` requests and cannot alter/delete
+ *    other employees' requests or self-approve their own loans.
+ * 3. HR/CEO/Accounts can update statuses/approvals/disbursements while preserving concurrent new
+ *    submissions from other employees.
+ */
+export function mergeLoanRecordsSetting(params) {
+    const existingList = Array.isArray(params.existing)
+        ? params.existing.filter((r) => r && typeof r === 'object' && r.id)
+        : [];
+    const incomingList = Array.isArray(params.incoming)
+        ? params.incoming.filter((r) => r && typeof r === 'object' && r.id)
+        : [];
+    const existingById = new Map();
+    for (const rec of existingList) {
+        existingById.set(String(rec.id), rec);
+    }
+    const identifiers = new Set([params.callerEmpCode, params.callerUuid]
+        .map((v) => String(v || '').trim().toLowerCase())
+        .filter(Boolean));
+    const cleanCallerName = String(params.callerName || '').trim().toLowerCase();
+    const belongsToCaller = (rec) => {
+        const empId = String(rec.employeeId || rec.employee_id || '').trim().toLowerCase();
+        const empName = String(rec.employeeName || rec.employee_name || '').trim().toLowerCase();
+        if (empId && identifiers.has(empId))
+            return true;
+        if (cleanCallerName && empName && empName === cleanCallerName)
+            return true;
+        return false;
+    };
+    if (params.canManageLoans) {
+        // Merge by ID: apply incoming updates & new items, while preserving any existing record
+        // that was submitted concurrently and is missing from a stale incoming client snapshot.
+        const mergedById = new Map(existingById);
+        const orderedIds = [];
+        for (const rec of incomingList) {
+            const id = String(rec.id);
+            mergedById.set(id, rec);
+            if (!orderedIds.includes(id))
+                orderedIds.push(id);
+        }
+        for (const rec of existingList) {
+            const id = String(rec.id);
+            if (!orderedIds.includes(id))
+                orderedIds.push(id);
+        }
+        return orderedIds.map((id) => mergedById.get(id)).filter(Boolean);
+    }
+    // Standard employee: preserve ALL existing DB records untouched and only prepend genuinely new
+    // `Pending` advance requests belonging to this caller.
+    const newlySubmittedByCaller = [];
+    for (const rec of incomingList) {
+        const id = String(rec.id);
+        if (existingById.has(id))
+            continue;
+        if (!belongsToCaller(rec))
+            continue;
+        newlySubmittedByCaller.push({
+            ...rec,
+            status: 'Pending',
+        });
+    }
+    return [...newlySubmittedByCaller, ...existingList];
+}
+function matchesCallerName(raw, callerName) {
+    if (!callerName)
+        return false;
+    const normalized = String(raw || '').trim().toLowerCase();
+    if (!normalized)
+        return false;
+    if (normalized === callerName)
+        return true;
+    // Web TaskManagement stores assigned_by as "First Last (Role)"
+    if (normalized.startsWith(`${callerName} (`))
+        return true;
+    const stripped = normalized.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    return stripped === callerName;
 }
 function isRowOwnedByCaller(row, callerEmpCode, callerUuid) {
     if (!row || typeof row !== 'object')
@@ -190,41 +335,116 @@ function isRowOwnedByCaller(row, callerEmpCode, callerUuid) {
     return Boolean((callerUuid && (rowEmpId === callerUuid || rowId === callerUuid)) ||
         (callerEmpCode && (rowEmpId === callerEmpCode || rowEmpCode === callerEmpCode || nestedEmpCode === callerEmpCode)));
 }
-export function isTaskVisibleToCaller(row, callerEmpCode, callerUuid) {
+export function isTaskCreatorCaller(row, callerEmpCode, callerUuid, callerName = '') {
     if (!row || typeof row !== 'object')
         return false;
     const identifiers = new Set([callerEmpCode, callerUuid].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
-    if (identifiers.size === 0)
-        return false;
-    const directValues = [row.responsible_person_id, row.employee_id, row.assigned_to, row.assignee_id, row.created_by, row.assigned_by]
-        .map((value) => String(value || '').trim().toLowerCase());
-    if (directValues.some((value) => identifiers.has(value)))
-        return true;
     const taskData = row.task_data && typeof row.task_data === 'object' ? row.task_data : {};
-    const nestedValues = [taskData.responsiblePersonId, taskData.employeeId, taskData.assignedTo, taskData.assigneeId, taskData.assignedBy, taskData.createdById]
-        .map((value) => String(value || '').trim().toLowerCase());
-    if (nestedValues.some((value) => identifiers.has(value)))
+    const creatorValues = [
+        row.created_by,
+        row.assigned_by,
+        taskData.assignedBy,
+        taskData.assignedById,
+        taskData.assignedByName,
+        taskData.createdById,
+    ];
+    return creatorValues.some((value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        return (normalized && identifiers.has(normalized)) || matchesCallerName(value, callerName);
+    });
+}
+export function isTaskVisibleToCaller(row, callerEmpCode, callerUuid, callerName = '') {
+    if (!row || typeof row !== 'object')
+        return false;
+    const identifiers = new Set([callerEmpCode, callerUuid].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean));
+    const cleanName = String(callerName || '').trim().toLowerCase();
+    if (identifiers.size === 0 && !cleanName)
+        return false;
+    const directValues = [
+        row.responsible_person_id,
+        row.responsible_person_name,
+        row.employee_id,
+        row.assigned_to,
+        row.assignee_id,
+        row.created_by,
+        row.assigned_by,
+    ];
+    if (directValues.some((value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        return (normalized && identifiers.has(normalized)) || matchesCallerName(value, cleanName);
+    })) {
         return true;
+    }
+    const taskData = row.task_data && typeof row.task_data === 'object' ? row.task_data : {};
+    const nestedValues = [
+        taskData.responsiblePersonId,
+        taskData.responsiblePersonName,
+        taskData.employeeId,
+        taskData.assignedTo,
+        taskData.assigneeId,
+        taskData.assignedBy,
+        taskData.assignedById,
+        taskData.assignedByName,
+        taskData.createdById,
+    ];
+    if (nestedValues.some((value) => {
+        const normalized = String(value || '').trim().toLowerCase();
+        return (normalized && identifiers.has(normalized)) || matchesCallerName(value, cleanName);
+    })) {
+        return true;
+    }
     const assignees = [
         ...(Array.isArray(taskData.assignees) ? taskData.assignees : []),
         ...(Array.isArray(taskData.assignedEmployees) ? taskData.assignedEmployees : []),
     ];
     return assignees.some((assignee) => {
-        if (typeof assignee === 'string')
-            return identifiers.has(assignee.trim().toLowerCase());
+        if (typeof assignee === 'string') {
+            const normalized = assignee.trim().toLowerCase();
+            return identifiers.has(normalized) || matchesCallerName(assignee, cleanName);
+        }
         if (!assignee || typeof assignee !== 'object')
             return false;
-        return [assignee.id, assignee.employeeId, assignee.employee_id]
-            .map((value) => String(value || '').trim().toLowerCase())
-            .some((value) => identifiers.has(value));
+        const idValues = [assignee.id, assignee.employeeId, assignee.employee_id]
+            .map((value) => String(value || '').trim().toLowerCase());
+        if (idValues.some((value) => identifiers.has(value)))
+            return true;
+        return matchesCallerName(assignee.employeeName || assignee.name, cleanName);
     });
 }
 export function mergeStandardTaskUpdate(currentTask, incomingTaskData, overallStatus, overallProgress, updatedAt) {
     const existingData = currentTask.task_data && typeof currentTask.task_data === 'object'
         ? currentTask.task_data
         : {};
+    // Preserve authoritative assignee identities while allowing progress/status
+    // updates on existing assignees (prevents identity tampering).
+    const existingAssignees = Array.isArray(existingData.assignees) ? existingData.assignees : [];
+    const incomingAssignees = Array.isArray(incomingTaskData.assignees) ? incomingTaskData.assignees : [];
+    const mergedAssignees = existingAssignees.map((existingItem) => {
+        if (!existingItem || typeof existingItem !== 'object')
+            return existingItem;
+        const existingCode = String(existingItem.employeeId || existingItem.employee_id || existingItem.id || '')
+            .trim()
+            .toLowerCase();
+        if (!existingCode)
+            return existingItem;
+        const incomingMatch = incomingAssignees.find((inc) => {
+            if (!inc || typeof inc !== 'object')
+                return false;
+            const incCode = String(inc.employeeId || inc.employee_id || inc.id || '').trim().toLowerCase();
+            return incCode === existingCode;
+        });
+        if (!incomingMatch)
+            return existingItem;
+        return {
+            ...existingItem,
+            ...(incomingMatch.individualStatus !== undefined ? { individualStatus: incomingMatch.individualStatus } : {}),
+            ...(incomingMatch.progressPercentage !== undefined ? { progressPercentage: incomingMatch.progressPercentage } : {}),
+            ...(incomingMatch.lastUpdatedAt !== undefined ? { lastUpdatedAt: incomingMatch.lastUpdatedAt } : {}),
+        };
+    });
     return {
         ...existingData,
+        ...(existingAssignees.length > 0 ? { assignees: mergedAssignees } : {}),
         dailyReports: Array.isArray(incomingTaskData.dailyReports)
             ? incomingTaskData.dailyReports
             : (existingData.dailyReports || []),
@@ -239,22 +459,34 @@ export function mergeStandardTaskUpdate(currentTask, incomingTaskData, overallSt
         updatedAt: updatedAt || new Date().toISOString(),
     };
 }
-export function isAssetVisibleToCaller(row, callerEmpCode, callerUuid) {
+export function isAssetVisibleToCaller(row, callerEmpCode, callerUuid, callerName = '') {
     if (!row || typeof row !== 'object')
         return false;
     const identifiers = new Set([callerEmpCode, callerUuid]
         .map((value) => String(value || '').trim().toLowerCase())
         .filter(Boolean));
-    if (identifiers.size === 0)
+    const cleanName = String(callerName || '').trim().toLowerCase();
+    if (identifiers.size === 0 && !cleanName)
         return false;
-    return [
+    const embeddedEmp = (row.assigned_employee && typeof row.assigned_employee === 'object' ? row.assigned_employee : null) ||
+        (row.employee && typeof row.employee === 'object' ? row.employee : null);
+    const embeddedFullName = embeddedEmp
+        ? `${embeddedEmp.first_name || ''} ${embeddedEmp.last_name || ''}`.trim()
+        : '';
+    const idMatches = [
         row.assigned_employee_id,
         row.assignedEmployeeId,
         row.employee_id,
         row.employeeId,
+        embeddedEmp?.id,
+        embeddedEmp?.employee_id,
     ]
         .map((value) => String(value || '').trim().toLowerCase())
-        .some((value) => identifiers.has(value));
+        .some((value) => value && identifiers.has(value));
+    if (idMatches)
+        return true;
+    return (matchesCallerName(row.assigned_employee_name || row.assignedEmployeeName, cleanName) ||
+        matchesCallerName(embeddedFullName, cleanName));
 }
 /**
  * Authenticated, RBAC-enforced Backend Data Gateway (`CRIT-01`, `CRIT-02`, `CRIT-03`).
@@ -293,20 +525,24 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
             return;
         }
         const userRole = req.user.role;
-        const isPrivileged = isCompanyWideGatewayRole(userRole);
-        const isHrAdmin = HR_ADMIN_ROLES.has(userRole);
-        const isFinanceAdmin = FINANCE_ADMIN_ROLES.has(userRole);
-        const { callerEmpCode, callerUuid } = await resolveCallerIdentifiers(req);
+        const { callerEmpCode, callerUuid, callerName, callerDepartment, callerDesignation, } = await resolveCallerIdentifiers(req);
+        const { isCeoUser, isHrAdmin, isFinanceAdmin, isPrivileged } = resolveEffectiveGatewayRoles({
+            userRole,
+            callerEmpCode,
+            callerDepartment,
+            callerDesignation,
+        });
         const rolePermissions = rbacRepository.getRolePermissions(userRole);
-        if (table === 'assets') {
+        // Every authenticated user is permitted to GET /assets (company-wide for CEO/HR,
+        // row-scoped to assigned assets for standard staff below). Only write operations
+        // require HR/CEO authority or explicit RBAC write permissions.
+        if (table === 'assets' && method !== 'GET' && !isHrAdmin && !isCeoUser) {
             const assetActions = rolePermissions?.modulePermissions.assets || [];
-            const requiredAction = method === 'GET'
-                ? 'view'
-                : method === 'POST'
-                    ? 'create'
-                    : method === 'DELETE'
-                        ? 'delete'
-                        : 'edit';
+            const requiredAction = method === 'POST'
+                ? 'create'
+                : method === 'DELETE'
+                    ? 'delete'
+                    : 'edit';
             if (!assetActions.includes(requiredAction)) {
                 res.status(403).json({
                     success: false,
@@ -422,6 +658,26 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
                 if (method === 'POST' && canCreateTask) {
                     // Authorized task creators may insert through the compatibility gateway.
                 }
+                else if (method === 'DELETE') {
+                    const taskIdFilter = new URLSearchParams(queryString).get('id') || '';
+                    const taskId = taskIdFilter.startsWith('eq.') ? taskIdFilter.slice(3) : '';
+                    if (!taskId) {
+                        res.status(400).json({
+                            success: false,
+                            error: { code: 'TASK_ID_REQUIRED', message: 'A single task ID is required for task deletion.' },
+                        });
+                        return;
+                    }
+                    const currentTaskResult = await query(`SELECT * FROM public.enterprise_tasks WHERE id::text = $1 LIMIT 1`, [taskId]);
+                    const currentTask = currentTaskResult.rows[0];
+                    if (!currentTask || !isTaskCreatorCaller(currentTask, callerEmpCode, callerUuid, callerName)) {
+                        res.status(403).json({
+                            success: false,
+                            error: { code: 'FORBIDDEN', message: 'You can only delete tasks you created.' },
+                        });
+                        return;
+                    }
+                }
                 else if (method !== 'PATCH') {
                     res.status(403).json({
                         success: false,
@@ -441,14 +697,15 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
                     }
                     const currentTaskResult = await query(`SELECT * FROM public.enterprise_tasks WHERE id::text = $1 LIMIT 1`, [taskId]);
                     const currentTask = currentTaskResult.rows[0];
-                    if (!currentTask || !isTaskVisibleToCaller(currentTask, callerEmpCode, callerUuid)) {
+                    const isCreator = currentTask ? isTaskCreatorCaller(currentTask, callerEmpCode, callerUuid, callerName) : false;
+                    if (!currentTask || (!isCreator && !isTaskVisibleToCaller(currentTask, callerEmpCode, callerUuid, callerName))) {
                         res.status(403).json({
                             success: false,
                             error: { code: 'FORBIDDEN', message: 'You can only update a task assigned or visible to you.' },
                         });
                         return;
                     }
-                    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+                    if (!isCreator && payload && typeof payload === 'object' && !Array.isArray(payload)) {
                         const allowed = new Set(['overall_status', 'overall_progress', 'task_data', 'updated_at']);
                         for (const key of Object.keys(payload)) {
                             if (!allowed.has(key))
@@ -522,6 +779,31 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
                         payload.setting_val = safeMergedMap;
                     }
                 }
+                // Protect loan_records_data (Advance Salary) from stale snapshot overwrites or
+                // accidental deletion during concurrent Web/Mobile writes.
+                const isLoanRecordsSetting = (payload && typeof payload === 'object' && payload.setting_key === 'loan_records_data') ||
+                    queryString.includes('loan_records_data');
+                if (isLoanRecordsSetting && payload && typeof payload === 'object' && Array.isArray(payload.setting_val)) {
+                    let existingLoans = [];
+                    try {
+                        const existingRes = await query(`SELECT setting_val FROM public.company_settings WHERE setting_key = 'loan_records_data' LIMIT 1`);
+                        const rawExisting = existingRes.rows[0]?.setting_val;
+                        if (Array.isArray(rawExisting)) {
+                            existingLoans = rawExisting;
+                        }
+                    }
+                    catch {
+                        // Fallback if DB query unavailable in mock environment
+                    }
+                    payload.setting_val = mergeLoanRecordsSetting({
+                        existing: existingLoans,
+                        incoming: payload.setting_val,
+                        canManageLoans: isHrAdmin || isFinanceAdmin || isCeoUser,
+                        callerEmpCode,
+                        callerUuid,
+                        callerName,
+                    });
+                }
             }
         }
         // Forward validated request to internal PostgREST service
@@ -577,10 +859,10 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
         }
         else if (table === 'company_settings') {
             if (Array.isArray(data)) {
-                data = data.map((row) => sanitizeCompanySettingsRow(row, isPrivileged, callerEmpCode, callerUuid));
+                data = data.map((row) => sanitizeCompanySettingsRow(row, isPrivileged, isFinanceAdmin, callerEmpCode, callerUuid));
             }
             else if (data && typeof data === 'object') {
-                data = sanitizeCompanySettingsRow(data, isPrivileged, callerEmpCode, callerUuid);
+                data = sanitizeCompanySettingsRow(data, isPrivileged, isFinanceAdmin, callerEmpCode, callerUuid);
             }
         }
         else if (!isPrivileged &&
@@ -596,17 +878,25 @@ export const proxyDataGatewayRequest = async (req, res, next) => {
         }
         else if (!isPrivileged && table === 'enterprise_tasks') {
             if (Array.isArray(data)) {
-                data = data.filter((row) => isTaskVisibleToCaller(row, callerEmpCode, callerUuid));
+                data = data.filter((row) => isTaskVisibleToCaller(row, callerEmpCode, callerUuid, callerName));
             }
-            else if (data && !isTaskVisibleToCaller(data, callerEmpCode, callerUuid)) {
+            else if (data && !isTaskVisibleToCaller(data, callerEmpCode, callerUuid, callerName)) {
                 data = null;
             }
         }
-        else if (table === 'assets' && rolePermissions?.dataAccess !== 'all') {
+        else if (table === 'assets' && !isHrAdmin && rolePermissions?.dataAccess !== 'all') {
             if (Array.isArray(data)) {
-                data = data.filter((row) => isAssetVisibleToCaller(row, callerEmpCode, callerUuid));
+                data = data.filter((row) => isAssetVisibleToCaller(row, callerEmpCode, callerUuid, callerName));
             }
-            else if (data && !isAssetVisibleToCaller(data, callerEmpCode, callerUuid)) {
+            else if (data && !isAssetVisibleToCaller(data, callerEmpCode, callerUuid, callerName)) {
+                data = null;
+            }
+        }
+        else if (!isHrAdmin && table === 'shift_requests') {
+            if (Array.isArray(data)) {
+                data = data.filter((row) => isRowOwnedByCaller(row, callerEmpCode, callerUuid));
+            }
+            else if (data && !isRowOwnedByCaller(data, callerEmpCode, callerUuid)) {
                 data = null;
             }
         }

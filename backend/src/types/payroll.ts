@@ -435,10 +435,13 @@ export interface PayslipResponseData {
     esicRate: number;
     professionalTax: number;
     lopAmount: number;
+    lateAttendanceDeduction?: number;
     advanceRecovery: number;
     loanRecovery: number;
     otherDeductions: number;
     totalDeductions: number;
   };
+  earningsBreakdown?: CalculationBreakdownItem[];
+  deductionsBreakdown?: CalculationBreakdownItem[];
   netSalary: number;
 }

@@ -945,6 +945,23 @@ export class CrmRepository {
     return this.mapBroadcastRow(created);
   }
 
+  async updateBroadcastStatus(
+    id: string,
+    status: CrmBroadcastStatus,
+    companyId = 'company-a'
+  ): Promise<CrmBroadcast | null> {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from('crm_broadcasts')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .select()
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? this.mapBroadcastRow(data) : null;
+  }
+
   // ============================================================
   // 6. ANALYTICS & DASHBOARD
   // ============================================================

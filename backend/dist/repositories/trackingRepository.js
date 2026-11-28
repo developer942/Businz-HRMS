@@ -717,7 +717,7 @@ export class TrackingRepository {
                 idx++;
             }
             else {
-                conditions.push(`ts.status NOT IN ('Cancelled')`);
+                conditions.push(`ts.status NOT IN ('Cancelled') AND COALESCE(ts.tracking_status, '') != 'Merged into canonical session'`);
             }
             const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
             const sql = `
@@ -767,7 +767,11 @@ export class TrackingRepository {
       `;
             const result = await query(sql, values);
             const trips = [];
+            const permanentDateMap = new Map();
             for (const row of result.rows) {
+                if (row.status === 'Cancelled' || row.tracking_status === 'Merged into canonical session') {
+                    continue;
+                }
                 const trip = this.mapTripRow(row, {
                     uuid: row.employee_id,
                     code: row.employee_code,
@@ -777,7 +781,47 @@ export class TrackingRepository {
                 // Fetch location points for this trip
                 const ptsRes = await query(`SELECT * FROM public.field_location_points WHERE trip_id = $1 ORDER BY recorded_at ASC`, [row.id]);
                 trip.locationPoints = ptsRes.rows.map((p) => this.mapLocationPointRow(p));
-                trips.push(trip);
+                const tripDate = trip.tripStartTime ? String(trip.tripStartTime).substring(0, 10) : '';
+                const empKey = String(trip.employeeId || '').trim().toLowerCase();
+                if (trip.isPermanentField && tripDate && empKey) {
+                    const canonicalKey = `${empKey}__${tripDate}`;
+                    const existing = permanentDateMap.get(canonicalKey);
+                    if (!existing) {
+                        permanentDateMap.set(canonicalKey, trip);
+                        trips.push(trip);
+                    }
+                    else {
+                        // Merge child visits from duplicate into the canonical session
+                        if (trip.childVisits && trip.childVisits.length > 0) {
+                            const visitMap = new Map((existing.childVisits || []).map((v) => [v.id, v]));
+                            trip.childVisits.forEach((v) => visitMap.set(v.id, v));
+                            existing.childVisits = Array.from(visitMap.values());
+                            existing.childVisitsCount = existing.childVisits.length;
+                        }
+                        // Merge location points without duplicates
+                        if (trip.locationPoints && trip.locationPoints.length > 0) {
+                            const pointIds = new Set((existing.locationPoints || []).map((p) => p.id));
+                            trip.locationPoints.forEach((p) => {
+                                if (!pointIds.has(p.id)) {
+                                    existing.locationPoints.push(p);
+                                    pointIds.add(p.id);
+                                }
+                            });
+                            existing.locationPoints.sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+                            existing.rawPointsCount = existing.locationPoints.length;
+                            existing.acceptedPointsCount = existing.locationPoints.filter((p) => !p.isRejected).length;
+                        }
+                        // Adopt checkout time if existing is null
+                        if (!existing.checkOutTime && trip.checkOutTime) {
+                            existing.checkOutTime = trip.checkOutTime;
+                            existing.tripEndTime = trip.tripEndTime || trip.checkOutTime;
+                            existing.status = 'Completed';
+                        }
+                    }
+                }
+                else {
+                    trips.push(trip);
+                }
             }
             return trips;
         }

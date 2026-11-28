@@ -197,11 +197,14 @@ export interface AssignCustodianPayload {
 }
 
 export interface ReconcileCustodianPayload {
+  previousAccountId?: string;
   newEmployeeId: string;
   newEmployeeName: string;
   newEmployeeCode: string;
   physicalCashCount: number;
+  physicalCashCounted?: number;
   reconciliationNotes: string;
+  transferRemainingBalance?: boolean;
   witnessCeoOrAccountsId?: string;
 }
 

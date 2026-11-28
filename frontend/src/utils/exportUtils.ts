@@ -437,8 +437,8 @@ export async function downloadExcel(
   const styledBuffer = await buildStyledExcelBuffer(data, columns);
   const cleanFilename = filename.replace(/\.(xlsx?|xls)$/i, '') + '.xlsx';
 
-  const blob = new Blob([styledBuffer as unknown as BlobPart], { 
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+  const blob = new Blob([styledBuffer as unknown as BlobPart], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   });
   triggerFileDownload(blob, cleanFilename);
 }
@@ -506,8 +506,8 @@ export async function downloadPDF(
   const pdfFormat: string | [number, number] = !isWideTable
     ? 'a4'
     : cols.length <= 20
-    ? 'a3'
-    : [Math.max(1190.55, 320 + cols.length * 30), 841.89];
+      ? 'a3'
+      : [Math.max(1190.55, 320 + cols.length * 30), 841.89];
 
   const doc = new jsPDF({
     orientation: isLandscape ? 'landscape' : 'portrait',
@@ -1490,7 +1490,7 @@ export function printElement(
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
         setTimeout(() => {
-          try { document.body.removeChild(iframe); } catch {}
+          try { document.body.removeChild(iframe); } catch { }
         }, 1200);
       }, 350);
       return;

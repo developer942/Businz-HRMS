@@ -954,7 +954,14 @@ export const supabaseDirect = {
         ...task,
         attachments: (task.attachments || []).map((a: any) => ({
           ...a,
-          fileUrl: (a.fileUrl && a.fileUrl.length > 50000) ? '#' : a.fileUrl
+          // Keep full file data up to ~5.5 MB base64 (~4 MB binary) and always keep http(s)/upload URLs
+          fileUrl:
+            a.fileUrl &&
+            typeof a.fileUrl === 'string' &&
+            a.fileUrl.startsWith('data:') &&
+            a.fileUrl.length > 7500000
+              ? '#'
+              : a.fileUrl
         }))
       };
 
@@ -1378,14 +1385,18 @@ export const supabaseDirect = {
         return { success: false, error: `Employee '${record.employee_id}' was not found in employees table.` };
       }
 
-      // Map to PostgreSQL enum hr_attendance_status: ['Present', 'Absent', 'Late', 'Half Day', 'Work From Home', 'On Leave']
+      // Map to PostgreSQL enum hr_attendance_status:
+      // ['Present', 'Absent', 'Late', 'Half Day', 'Work From Home', 'On Leave', 'Holiday', 'Week Off', 'Missing Punch']
       let status = 'Present';
-      const rawStatus = (record.status || '').toLowerCase();
-      if (rawStatus.includes('absent')) status = 'Absent';
-      else if (rawStatus.includes('late')) status = 'Late';
+      const rawStatus = (record.status || '').toLowerCase().trim();
+      if (rawStatus === 'mu' || rawStatus.includes('missing punch') || rawStatus.includes('missed punch')) status = 'Missing Punch';
+      else if (rawStatus.includes('absent') || rawStatus.includes('unpaid')) status = 'Absent';
+      else if (rawStatus === 'late') status = 'Late';
       else if (rawStatus.includes('half')) status = 'Half Day';
       else if (rawStatus.includes('home') || rawStatus.includes('wfh')) status = 'Work From Home';
-      else if (rawStatus.includes('leave') || rawStatus.includes('off') || rawStatus.includes('holiday')) status = 'On Leave';
+      else if (rawStatus === 'holiday') status = 'Holiday';
+      else if (rawStatus.includes('week off') || rawStatus === 'weekoff') status = 'Week Off';
+      else if (rawStatus.includes('leave')) status = 'On Leave';
 
       const payload = {
         employee_id: employeeUuid,
@@ -1461,12 +1472,15 @@ export const supabaseDirect = {
       }
 
       let status = 'Present';
-      const rawStatus = (record.status || '').toLowerCase();
-      if (rawStatus.includes('absent')) status = 'Absent';
-      else if (rawStatus.includes('late')) status = 'Late';
+      const rawStatus = (record.status || '').toLowerCase().trim();
+      if (rawStatus === 'mu' || rawStatus.includes('missing punch') || rawStatus.includes('missed punch')) status = 'Missing Punch';
+      else if (rawStatus.includes('absent') || rawStatus.includes('unpaid')) status = 'Absent';
+      else if (rawStatus === 'late') status = 'Late';
       else if (rawStatus.includes('half')) status = 'Half Day';
       else if (rawStatus.includes('home') || rawStatus.includes('wfh')) status = 'Work From Home';
-      else if (rawStatus.includes('leave') || rawStatus.includes('off') || rawStatus.includes('holiday')) status = 'On Leave';
+      else if (rawStatus === 'holiday') status = 'Holiday';
+      else if (rawStatus.includes('week off') || rawStatus === 'weekoff') status = 'Week Off';
+      else if (rawStatus.includes('leave')) status = 'On Leave';
 
       const payload: Record<string, any> = {
         employee_id: employeeUuid,
@@ -1484,9 +1498,9 @@ export const supabaseDirect = {
       if (record.check_in_photo !== undefined) payload.check_in_photo = record.check_in_photo;
       if (record.check_out_photo !== undefined) payload.check_out_photo = record.check_out_photo;
 
-      // 1. Try to PATCH existing record by employee_id + date
+      // 1. Try to PATCH existing record by employee_id + (date OR shift_date)
       const patchRes = await fetch(
-        `${DATABASE_REST_URL}/rest/v1/attendance_records?employee_id=eq.${encodeURIComponent(employeeUuid)}&date=eq.${encodeURIComponent(record.date)}`,
+        `${DATABASE_REST_URL}/rest/v1/attendance_records?employee_id=eq.${encodeURIComponent(employeeUuid)}&or=(date.eq.${encodeURIComponent(record.date)},shift_date.eq.${encodeURIComponent(record.date)})`,
         {
           method: 'PATCH',
           headers: { ...getHeaders(), 'Prefer': 'return=representation' },

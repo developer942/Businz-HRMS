@@ -456,4 +456,115 @@ describe('BUSINZ HRMS - Complete Petty Cash Management Module (End-to-End)', () 
     expect(body.success).toBe(true);
     expect(body.data.availableCash).toBe(9500);
   });
+
+  // ------------------------------------------------------------
+  // PHASE 8: Safe Custodian Handover & Reconciliation
+  // ------------------------------------------------------------
+  it('21. Rejects non-CEO attempt to reassign custodian', async () => {
+    const res = await fetch(`${BASE_URL}/custodian/reconcile`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accountsToken}`,
+      },
+      body: JSON.stringify({
+        newEmployeeId: 'usr-new-cust-002',
+        newEmployeeName: 'Vaishnavi V',
+        newEmployeeCode: 'VRM-032',
+        physicalCashCount: 9500,
+        reconciliationNotes: 'Unauthorized handover attempt',
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('22. Rejects handing over to the same active custodian', async () => {
+    const res = await fetch(`${BASE_URL}/custodian/reassign`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ceoToken}`,
+      },
+      body: JSON.stringify({
+        newEmployeeId: 'usr-cust-001',
+        newEmployeeName: 'Karthik Custodian',
+        newEmployeeCode: 'EMP-004',
+        physicalCashCount: 9500,
+        reconciliationNotes: 'Same custodian check',
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('23. CEO executes Safe Custodian Handover via /custodian/reconcile (Web legacy payload) preserving ₹9,500 balance', async () => {
+    const res = await fetch(`${BASE_URL}/custodian/reconcile`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ceoToken}`,
+      },
+      body: JSON.stringify({
+        newEmployeeId: 'usr-new-cust-002',
+        newEmployeeName: 'Vaishnavi V',
+        newEmployeeCode: 'VRM-032',
+        physicalCashCount: 9500,
+        reconciliationNotes: 'change the petty cash member',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.previousAccount.status).toBe('TRANSFERRED');
+    expect(body.data.previousAccount.reconciliation_status).toBe('RECONCILED');
+    expect(body.data.previousAccount.current_balance).toBe(0);
+    expect(body.data.newAccount.status).toBe('ACTIVE');
+    expect(body.data.newAccount.custodian_name).toBe('Vaishnavi V');
+    expect(body.data.newAccount.custodian_employee_id).toBe('VRM-032');
+    expect(body.data.newAccount.current_balance).toBe(9500);
+
+    // Active custodian endpoint immediately reflects Vaishnavi V with ₹9,500
+    const activeRes = await fetch(`${BASE_URL}/custodian/active`, {
+      headers: { Authorization: `Bearer ${ceoToken}` },
+    });
+    expect(activeRes.status).toBe(200);
+    const activeBody = await activeRes.json();
+    expect(activeBody.data.custodian_name).toBe('Vaishnavi V');
+    expect(activeBody.data.current_balance).toBe(9500);
+  });
+
+  it('24. CEO executes subsequent handover via /custodian/reassign with explicit previousAccountId and fetches /custodian/history', async () => {
+    const activeRes = await fetch(`${BASE_URL}/custodian/active`, {
+      headers: { Authorization: `Bearer ${ceoToken}` },
+    });
+    const currentActive = (await activeRes.json()).data;
+
+    const res = await fetch(`${BASE_URL}/custodian/reassign`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ceoToken}`,
+      },
+      body: JSON.stringify({
+        previousAccountId: currentActive.id,
+        newEmployeeId: 'usr-new-cust-003',
+        newEmployeeName: 'Arun Boopathi M',
+        newEmployeeCode: 'VRM-013',
+        physicalCashCounted: 9500,
+        reconciliationNotes: 'Handover back after audit review',
+        transferRemainingBalance: true,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.newAccount.custodian_name).toBe('Arun Boopathi M');
+    expect(body.data.newAccount.current_balance).toBe(9500);
+
+    const historyRes = await fetch(`${BASE_URL}/custodian/history`, {
+      headers: { Authorization: `Bearer ${ceoToken}` },
+    });
+    expect(historyRes.status).toBe(200);
+    const historyBody = await historyRes.json();
+    expect(historyBody.success).toBe(true);
+    expect(historyBody.data.length).toBeGreaterThanOrEqual(3);
+  });
 });

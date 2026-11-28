@@ -1,17 +1,37 @@
 export const FIELD_ALLOWANCE_STATUSES = [
   'DRAFT',
   'PENDING_APPROVAL',
+  'PENDING_ADVANCE_APPROVAL',
+  'APPROVED',
+  'PENDING_DISTRIBUTION',
+  'AMOUNT_DISTRIBUTED',
+  'ACTIVE_VISIT',
+  'IN_PROGRESS',
+  'CLAIM_SUBMITTED',
+  'PENDING_SETTLEMENT_VERIFICATION',
+  'PENDING_REIMBURSEMENT',
+  'PENDING_RETURN',
+  'COMPLETED',
+  'SETTLED',
   'CORRECTION_REQUESTED',
   'REJECTED',
-  'APPROVED',
-  'AMOUNT_DISTRIBUTED',
-  'IN_PROGRESS',
-  'COMPLETED',
 ] as const;
 
 export type FieldAllowanceStatus = typeof FIELD_ALLOWANCE_STATUSES[number];
 export type FieldAllowanceDecision = 'APPROVED' | 'REJECTED' | 'CORRECTION_REQUESTED';
-export type FieldAllowanceCategory = 'TRAVEL' | 'FOOD' | 'ROOM' | 'BUS' | 'FUEL' | 'OTHER';
+export const FIELD_ALLOWANCE_CATEGORIES = [
+  'TRAVEL',
+  'BUS',
+  'TRAIN',
+  'TAXI_AUTO',
+  'FUEL',
+  'FOOD',
+  'ROOM',
+  'PARKING',
+  'TOLL',
+  'OTHER',
+] as const;
+export type FieldAllowanceCategory = typeof FIELD_ALLOWANCE_CATEGORIES[number];
 export type FieldAllowanceBalanceReturnStatus = 'NONE' | 'SUBMITTED_TO_ACCOUNTS' | 'RECEIVED_BY_ACCOUNTS';
 
 export interface FieldAllowanceDailyReport {

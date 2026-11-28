@@ -10,6 +10,7 @@ export class PettyCashService {
             custodianEmployeeId: params.custodianEmployeeId,
             custodianName: params.custodianName,
             assignedById: params.assignedById,
+            assignedByEmployeeCode: params.assignedByEmployeeCode,
             assignedByName: params.assignedByName,
             assignmentDate: params.assignmentDate,
             lowBalanceThreshold: params.lowBalanceThreshold,
@@ -32,12 +33,31 @@ export class PettyCashService {
         return account;
     }
     async reassignCustodian(params) {
+        const activeAccount = await pettyCashRepository.getActiveAccount(params.companyId);
+        const resolvedPreviousId = params.previousAccountId || activeAccount?.id;
+        if (!resolvedPreviousId) {
+            throw new Error('No active petty cash account found to reassign.');
+        }
+        const targetPrev = activeAccount && activeAccount.id === resolvedPreviousId
+            ? activeAccount
+            : await pettyCashRepository.getAccountById(resolvedPreviousId);
+        if (!targetPrev) {
+            throw new Error('Previous petty cash account not found');
+        }
+        if (targetPrev.custodian_id === params.newEmployeeId ||
+            (targetPrev.custodian_employee_id &&
+                params.newEmployeeCode &&
+                targetPrev.custodian_employee_id.toLowerCase() === params.newEmployeeCode.toLowerCase())) {
+            throw new Error('Selected employee is already the active petty cash custodian.');
+        }
         const result = await pettyCashRepository.reassignCustodian({
-            previousAccountId: params.previousAccountId,
+            companyId: params.companyId,
+            previousAccountId: resolvedPreviousId,
             newEmployeeId: params.newEmployeeId,
             newEmployeeName: params.newEmployeeName,
             newEmployeeCode: params.newEmployeeCode,
             assignedById: params.assignedById,
+            assignedByEmployeeCode: params.assignedByEmployeeCode,
             assignedByName: params.assignedByName,
             reconciliationNotes: params.reconciliationNotes,
             physicalCashCounted: params.physicalCashCounted,
@@ -53,9 +73,10 @@ export class PettyCashService {
             entityType: 'ACCOUNT',
             entityId: result.newAccount.id,
             details: {
-                previousAccountId: params.previousAccountId,
-                newCustodianId: params.newEmployeeId,
-                newCustodianName: params.newEmployeeName,
+                previousAccountId: resolvedPreviousId,
+                previousCustodianName: result.previousAccount.custodian_name,
+                newCustodianId: result.newAccount.custodian_id,
+                newCustodianName: result.newAccount.custodian_name,
                 physicalCashCounted: params.physicalCashCounted,
                 transferredBalance: params.transferRemainingBalance,
                 notes: params.reconciliationNotes,
@@ -65,6 +86,9 @@ export class PettyCashService {
     }
     async getActiveCustodian(companyId) {
         return pettyCashRepository.getActiveAccount(companyId);
+    }
+    async getAccountHistory(companyId) {
+        return pettyCashRepository.getAccountHistory(companyId);
     }
     // ============================================================
     // 2. PETTY CASH REQUESTS

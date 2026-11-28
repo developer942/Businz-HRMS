@@ -27,6 +27,14 @@ export const CORE_MODULES = [
     { id: 'mod-16', key: 'settings', name: 'Settings', category: 'System', isCustom: false, description: 'System configurations, company identity & policy engines' },
     { id: 'mod-17', key: 'customer_data', name: 'Customer Data Collection', category: 'Operations', isCustom: false, description: 'Field customer capture, visiting card OCR scanning, WhatsApp consent and templates' },
     { id: 'mod-18', key: 'whatsapp_crm', name: 'WhatsApp CRM', category: 'Operations', isCustom: false, description: 'Shared WhatsApp Business Cloud API Inbox, Contacts, Broadcasts & Templates' },
+    { id: 'mod-19', key: 'assets', name: 'Asset Management', category: 'HR Core', isCustom: false, description: 'Company asset inventory, assignment, return and maintenance history' },
+    { id: 'mod-20', key: 'field_allowance', name: 'Finance and Claims', category: 'Finance', isCustom: false, description: 'Field visit advances, daily expense proofs, settlements and reimbursements' },
+    { id: 'mod-21', key: 'petty_cash', name: 'Petty Cash', category: 'Finance', isCustom: false, description: 'Custodian wallet, fund requests, CEO approvals, disbursements and ledger' },
+    { id: 'mod-22', key: 'accounts_payment', name: 'Payment Disbursement', category: 'Finance', isCustom: false, description: 'Unified accounts disbursement register for payroll, claims, advances and petty cash' },
+    { id: 'mod-23', key: 'face_attendance', name: 'Face Attendance', category: 'Time & Attendance', isCustom: false, description: 'Live front-camera GPS face attendance punch-in and punch-out' },
+    { id: 'mod-24', key: 'holidays', name: 'Holiday Management', category: 'Time & Attendance', isCustom: false, description: 'Company holiday calendar and policies' },
+    { id: 'mod-25', key: 'overtime', name: 'Overtime', category: 'Time & Attendance', isCustom: false, description: 'Overtime requests, policies and approvals' },
+    { id: 'mod-26', key: 'recruitment', name: 'Recruitment', category: 'HR Core', isCustom: false, description: 'Job openings, candidate pipeline and employee referrals' },
 ];
 export const SPECIAL_PERMISSIONS_CATALOG = [
     // Payroll & Salary
@@ -148,10 +156,10 @@ export class RbacRepository {
         this.seedDefaultPermissions();
     }
     seedDefaultPermissions() {
-        // 1. CEO (Full Access across every module, action, and special permission)
+        // 1. CEO (Full Access across executive modules; excludes Accounts-only Payment Disbursement desk)
         const ceoModules = {};
         this.modules.forEach(m => {
-            ceoModules[m.key] = [...ALL_ACTIONS];
+            ceoModules[m.key] = m.key === 'accounts_payment' ? [] : [...ALL_ACTIONS];
         });
         this.permissionsByRole['role-ceo'] = {
             roleId: 'role-ceo',
@@ -169,11 +177,15 @@ export class RbacRepository {
                 // HR can view, create and export, but CANNOT approve financial requests
                 hrModules[m.key] = ['view', 'create', 'export'];
             }
-            else if (['employees', 'attendance', 'shift', 'leave', 'tasks', 'reports', 'documents', 'notifications', 'dashboard', 'customer_data', 'whatsapp_crm'].includes(m.key)) {
+            else if (m.key === 'accounts_payment' || m.key === 'petty_cash') {
+                // Payment disbursement belongs strictly to Accounts; petty cash oversight belongs to CEO & Accounts
+                hrModules[m.key] = [];
+            }
+            else if (['employees', 'attendance', 'face_attendance', 'shift', 'leave', 'holidays', 'overtime', 'tasks', 'field_allowance', 'gps_tracking', 'site_visit', 'reports', 'documents', 'notifications', 'dashboard', 'customer_data', 'whatsapp_crm', 'recruitment'].includes(m.key)) {
                 hrModules[m.key] = [...ALL_ACTIONS];
             }
             else if (m.key === 'assets') {
-                hrModules[m.key] = ['view', 'create', 'edit', 'export'];
+                hrModules[m.key] = ['view', 'create', 'edit', 'delete', 'export'];
             }
             else {
                 hrModules[m.key] = ['view'];
@@ -204,10 +216,10 @@ export class RbacRepository {
             updatedAt: new Date().toISOString(),
             updatedBy: 'System',
         };
-        // 3. Admin (System Administration Access + All Employee Data)
+        // 3. Admin (System Administration Access + All Employee Data; excludes Accounts-only Payment Disbursement)
         const adminModules = {};
         this.modules.forEach(m => {
-            adminModules[m.key] = ['view', 'create', 'edit', 'delete', 'export'];
+            adminModules[m.key] = m.key === 'accounts_payment' ? [] : ['view', 'create', 'edit', 'delete', 'export'];
         });
         adminModules['settings'] = [...ALL_ACTIONS];
         adminModules['documents'] = [...ALL_ACTIONS];
@@ -299,18 +311,23 @@ export class RbacRepository {
         const empModules = {
             dashboard: ['view'],
             attendance: ['view', 'create'],
+            face_attendance: ['view', 'create'],
             shift: ['view'],
             leave: ['view', 'create'],
-            tasks: ['view', 'edit'],
+            holidays: ['view'],
+            overtime: ['view', 'create'],
+            tasks: ['view', 'create', 'edit', 'assign'],
             payroll: ['view', 'export'],
             advance_salary: ['view', 'create'],
             expenses: ['view', 'create'],
+            field_allowance: ['view', 'create'],
+            gps_tracking: ['view', 'create'],
+            site_visit: ['view', 'create'],
             documents: ['view'],
             notifications: ['view'],
-            // Employees can capture customers and send/read messages, but cannot
-            // delete shared CRM records, create broadcasts/templates or edit config.
+            // Employees can capture customers, send/read messages, and run CRM templates/campaigns
             customer_data: ['view', 'create'],
-            whatsapp_crm: ['view', 'edit'],
+            whatsapp_crm: ['view', 'create', 'edit'],
             assets: ['view'],
         };
         this.permissionsByRole['role-employee'] = {
@@ -318,7 +335,7 @@ export class RbacRepository {
             roleName: 'Employee',
             dataAccess: 'own',
             modulePermissions: empModules,
-            specialPermissions: [],
+            specialPermissions: ['create_tasks', 'assign_tasks'],
             updatedAt: new Date().toISOString(),
             updatedBy: 'System',
         };
@@ -328,15 +345,20 @@ export class RbacRepository {
         const accountsModules = {
             dashboard: ['view'],
             attendance: ['view', 'create'], // Self punches only
+            face_attendance: ['view', 'create'],
             shift: ['view'],
             leave: ['view', 'create'], // Self leaves
-            tasks: ['view', 'edit'],
-            payroll: ['view', 'export'], // Self payslip
+            holidays: ['view'],
+            tasks: ['view', 'create', 'edit', 'assign'],
+            payroll: ['view', 'export'], // Payroll & payslip disbursement
             advance_salary: ['view', 'create', 'export'], // Disburse approved advances
             expenses: ['view', 'create', 'export'], // Disburse approved claims
-            petty_cash: ['view', 'create', 'export'], // Disburse funding
+            field_allowance: ['view', 'create', 'export'], // Finance & Claims settlement
+            petty_cash: ['view', 'create', 'export'], // Disburse funding & ledger
+            accounts_payment: ['view', 'create', 'export'], // Payment disbursement desk
             documents: ['view'],
             notifications: ['view'],
+            assets: ['view'], // Own assigned assets
             customer_data: [...ALL_ACTIONS],
             whatsapp_crm: [...ALL_ACTIONS],
         };
@@ -346,6 +368,8 @@ export class RbacRepository {
             dataAccess: 'own',
             modulePermissions: accountsModules,
             specialPermissions: [
+                'create_tasks',
+                'assign_tasks',
                 'view_reports',
                 'export_reports',
             ],
@@ -373,12 +397,14 @@ export class RbacRepository {
             return this.permissionsByRole[roleIdOrName];
         }
         const clean = (roleIdOrName || '').toLowerCase().trim();
+        if (clean === 'super admin' || clean === 'ceo' || clean.includes('ceo')) {
+            return this.permissionsByRole['role-ceo'];
+        }
         const role = this.roles.find(r => r.id === roleIdOrName ||
             r.name.toLowerCase() === clean ||
             (clean.includes('hr') && r.name === 'HR') ||
-            (clean.includes('admin') && r.name === 'Admin') ||
-            (clean.includes('ceo') && r.name === 'CEO') ||
-            ((clean.includes('finance') || clean.includes('account')) && r.name === 'Finance Manager'));
+            ((clean.includes('finance') || clean.includes('account')) && r.name === 'Finance Manager') ||
+            (clean.includes('admin') && r.name === 'Admin'));
         if (role && this.permissionsByRole[role.id]) {
             return this.permissionsByRole[role.id];
         }

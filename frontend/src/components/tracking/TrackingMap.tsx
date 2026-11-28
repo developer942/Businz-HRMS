@@ -17,6 +17,8 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { LocationPoint, FieldVisitDistanceSegment, FieldVisitStop } from '../../types/tracking';
 import {
@@ -64,6 +66,8 @@ export interface TrackingMapProps {
   interactive?: boolean;
   showPlaybackControls?: boolean;
   showControls?: boolean;
+  essentialControlsOnly?: boolean;
+  hideLegend?: boolean;
   className?: string;
   onPlaybackProgress?: (currentPoint: LocationPoint, index: number) => void;
   autoFitBounds?: boolean;
@@ -108,6 +112,8 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
   onMapClick,
   showPlaybackControls = false,
   showControls = true,
+  essentialControlsOnly = false,
+  hideLegend = false,
   className = '',
   onPlaybackProgress,
   autoFitBounds = true,
@@ -833,54 +839,56 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
             alignItems: 'flex-end',
           }}
         >
-          {/* Layer Selector */}
-          <div
-            style={{
-              display: 'flex',
-              backgroundColor: 'rgba(255, 255, 255, 0.96)',
-              backdropFilter: 'blur(8px)',
-              borderRadius: '10px',
-              padding: '3px',
-              border: '1px solid #CBD5E1',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-              gap: '2px',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setTileStyle('osm_standard')}
+          {/* Layer Selector (Only in full/advanced mode) */}
+          {!essentialControlsOnly && (
+            <div
               style={{
-                padding: '4px 8px',
-                borderRadius: '7px',
-                border: 'none',
-                fontSize: '0.7rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                backgroundColor: tileStyle === 'osm_standard' ? '#0E7490' : 'transparent',
-                color: tileStyle === 'osm_standard' ? '#FFFFFF' : '#64748B',
-                transition: 'all 0.15s',
+                display: 'flex',
+                backgroundColor: 'rgba(255, 255, 255, 0.96)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: '10px',
+                padding: '3px',
+                border: '1px solid #CBD5E1',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                gap: '2px',
               }}
             >
-              OSM Standard
-            </button>
-            <button
-              type="button"
-              onClick={() => setTileStyle('esri_streets')}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '7px',
-                border: 'none',
-                fontSize: '0.7rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                backgroundColor: tileStyle === 'esri_streets' ? '#0E7490' : 'transparent',
-                color: tileStyle === 'esri_streets' ? '#FFFFFF' : '#64748B',
-                transition: 'all 0.15s',
-              }}
-            >
-              Esri Streets
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setTileStyle('osm_standard')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  backgroundColor: tileStyle === 'osm_standard' ? '#0E7490' : 'transparent',
+                  color: tileStyle === 'osm_standard' ? '#FFFFFF' : '#64748B',
+                  transition: 'all 0.15s',
+                }}
+              >
+                OSM Standard
+              </button>
+              <button
+                type="button"
+                onClick={() => setTileStyle('esri_streets')}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  backgroundColor: tileStyle === 'esri_streets' ? '#0E7490' : 'transparent',
+                  color: tileStyle === 'esri_streets' ? '#FFFFFF' : '#64748B',
+                  transition: 'all 0.15s',
+                }}
+              >
+                Esri Streets
+              </button>
+            </div>
+          )}
 
           {/* Action Toolbar */}
           <div
@@ -896,10 +904,10 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
               gap: '4px',
             }}
           >
-            {/* Recenter */}
+            {/* Zoom In */}
             <button
               type="button"
-              onClick={handleRecenter}
+              onClick={() => leafletMapRef.current?.zoomIn()}
               style={{
                 padding: '6px',
                 borderRadius: '7px',
@@ -911,9 +919,29 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
-              title="Recenter Live Location"
+              title="Zoom In"
             >
-              <Crosshair size={15} />
+              <Plus size={15} />
+            </button>
+
+            {/* Zoom Out */}
+            <button
+              type="button"
+              onClick={() => leafletMapRef.current?.zoomOut()}
+              style={{
+                padding: '6px',
+                borderRadius: '7px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                color: '#334155',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title="Zoom Out"
+            >
+              <Minus size={15} />
             </button>
 
             {/* Fit Entire Route */}
@@ -931,71 +959,95 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
-              title="Fit Entire Travelled Route"
+              title="Fit Entire Route"
             >
               <Locate size={15} />
             </button>
 
-            {/* Follow Live Location Toggle */}
-            <button
-              type="button"
-              onClick={() => setFollowLive(!followLive)}
-              style={{
-                padding: '5px 8px',
-                borderRadius: '7px',
-                border: 'none',
-                backgroundColor: followLive ? '#ECFEFF' : 'transparent',
-                color: followLive ? '#0E7490' : '#64748B',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                fontSize: '0.68rem',
-                fontWeight: 700,
-              }}
-              title={followLive ? 'Disable Auto-Follow' : 'Enable Auto-Follow Live Employee'}
-            >
-              <LocateFixed size={14} color={followLive ? '#0E7490' : '#64748B'} />
-              <span>Follow</span>
-            </button>
+            {!essentialControlsOnly && (
+              <>
+                {/* Recenter */}
+                <button
+                  type="button"
+                  onClick={handleRecenter}
+                  style={{
+                    padding: '6px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: '#334155',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title="Recenter Live Location"
+                >
+                  <Crosshair size={15} />
+                </button>
 
-            {/* Toggle Breadcrumbs */}
-            <button
-              type="button"
-              onClick={() => setShowBreadcrumbs(!showBreadcrumbs)}
-              style={{
-                padding: '4px 6px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: showBreadcrumbs ? '#F1F5F9' : 'transparent',
-                color: showBreadcrumbs ? '#0E7490' : '#94A3B8',
-                cursor: 'pointer',
-                fontSize: '0.68rem',
-                fontWeight: 700,
-              }}
-              title="Show / Hide Recorded GPS Fix Dots"
-            >
-              Fixes
-            </button>
+                {/* Follow Live Location Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setFollowLive(!followLive)}
+                  style={{
+                    padding: '5px 8px',
+                    borderRadius: '7px',
+                    border: 'none',
+                    backgroundColor: followLive ? '#ECFEFF' : 'transparent',
+                    color: followLive ? '#0E7490' : '#64748B',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                  }}
+                  title={followLive ? 'Disable Auto-Follow' : 'Enable Auto-Follow Live Employee'}
+                >
+                  <LocateFixed size={14} color={followLive ? '#0E7490' : '#64748B'} />
+                  <span>Follow</span>
+                </button>
 
-            {/* Toggle Gaps */}
-            <button
-              type="button"
-              onClick={() => setShowGaps(!showGaps)}
-              style={{
-                padding: '4px 6px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: showGaps ? '#FEF3C7' : 'transparent',
-                color: showGaps ? '#B45309' : '#94A3B8',
-                cursor: 'pointer',
-                fontSize: '0.68rem',
-                fontWeight: 700,
-              }}
-              title="Show / Hide Missing GPS Gaps"
-            >
-              Gaps
-            </button>
+                {/* Toggle Breadcrumbs */}
+                <button
+                  type="button"
+                  onClick={() => setShowBreadcrumbs(!showBreadcrumbs)}
+                  style={{
+                    padding: '4px 6px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: showBreadcrumbs ? '#F1F5F9' : 'transparent',
+                    color: showBreadcrumbs ? '#0E7490' : '#94A3B8',
+                    cursor: 'pointer',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                  }}
+                  title="Show / Hide Recorded GPS Fix Dots"
+                >
+                  Fixes
+                </button>
+
+                {/* Toggle Gaps */}
+                <button
+                  type="button"
+                  onClick={() => setShowGaps(!showGaps)}
+                  style={{
+                    padding: '4px 6px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: showGaps ? '#FEF3C7' : 'transparent',
+                    color: showGaps ? '#B45309' : '#94A3B8',
+                    cursor: 'pointer',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                  }}
+                  title="Show / Hide Missing GPS Gaps"
+                >
+                  Gaps
+                </button>
+              </>
+            )}
 
             {/* Fullscreen Toggle */}
             <button
@@ -1021,69 +1073,47 @@ export const TrackingMap: React.FC<TrackingMapProps> = ({
       )}
 
       {/* Standardized Bottom-Left Map Legend */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: showPlaybackControls && playbackFrames.length > 1 ? '70px' : '14px',
-          left: '12px',
-          zIndex: 1000,
-          backgroundColor: 'rgba(255, 255, 255, 0.96)',
-          backdropFilter: 'blur(8px)',
-          borderRadius: '12px',
-          padding: '8px 12px',
-          border: '1px solid #CBD5E1',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-          fontSize: '0.72rem',
-          maxWidth: '380px',
-        }}
-      >
+      {!hideLegend && (
         <div
           style={{
+            position: 'absolute',
+            bottom: showPlaybackControls && playbackFrames.length > 1 ? '70px' : '12px',
+            left: '12px',
+            zIndex: 1000,
+            backgroundColor: 'rgba(255, 255, 255, 0.94)',
+            backdropFilter: 'blur(8px)',
+            borderRadius: '10px',
+            padding: '6px 12px',
+            border: '1px solid #CBD5E1',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            color: '#334155',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer',
-            gap: '8px',
-            marginBottom: showLegend ? '6px' : '0',
+            gap: '12px',
+            flexWrap: 'wrap',
           }}
-          onClick={() => setShowLegend(!showLegend)}
         >
-          <span style={{ fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Layers size={13} color="#0E7490" />
-            <span>Map Legend</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#16A34A', display: 'inline-block' }} />
+            Punch In (A)
           </span>
-          {showLegend ? <ChevronDown size={14} color="#64748B" /> : <ChevronUp size={14} color="#64748B" />}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '14px', height: '3px', backgroundColor: '#1D4ED8', display: 'inline-block', borderRadius: '2px' }} />
+            Travel Route
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#D97706', display: 'inline-block' }} />
+            Site Visit
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#DC2626', display: 'inline-block' }} />
+            Punch Out (B)
+          </span>
         </div>
+      )}
 
-        {showLegend && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '5px 12px', color: '#475569' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '14px', height: '3.5px', backgroundColor: '#1D4ED8', borderRadius: '2px' }} />
-              <span>Verified Route</span>
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '14px', height: '0', borderTop: '2px dashed #D97706' }} />
-              <span>GPS Gap (Missing)</span>
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#16A34A' }} />
-              <span>Punch In (A)</span>
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#1D4ED8' }} />
-              <span>Live Location</span>
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#D97706' }} />
-              <span>Customer Visit</span>
-            </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#DC2626' }} />
-              <span>Punch Out (B)</span>
-            </span>
-          </div>
-        )}
-      </div>
 
       {/* Advanced Route Playback Controller (Bottom Center) */}
       {showPlaybackControls && playbackFrames.length > 1 && (

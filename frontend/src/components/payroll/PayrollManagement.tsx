@@ -859,7 +859,7 @@ export const PayrollManagement: React.FC = () => {
               </button>
             </>
           )}
-          {(isAccountsUser || isCEOUser) && sentToAccountsCount > 0 && (
+          {isAccountsUser && !isCEOUser && sentToAccountsCount > 0 && (
             <button
               type="button"
               className="btn btn-secondary"

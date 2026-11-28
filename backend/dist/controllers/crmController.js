@@ -421,6 +421,27 @@ export class CrmController {
             res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to create broadcast' });
         }
     }
+    async updateBroadcastStatus(req, res) {
+        try {
+            const companyId = req.user?.company_id || 'company-a';
+            const id = String(req.params.id);
+            const status = String(req.body?.status || '').trim();
+            const allowed = ['draft', 'scheduled', 'sending', 'sent', 'completed', 'failed'];
+            if (!allowed.includes(status)) {
+                res.status(400).json({ success: false, error: 'Invalid broadcast status' });
+                return;
+            }
+            const updated = await crmRepository.updateBroadcastStatus(id, status, companyId);
+            if (!updated) {
+                res.status(404).json({ success: false, error: 'Broadcast not found' });
+                return;
+            }
+            res.status(200).json({ success: true, data: updated });
+        }
+        catch (err) {
+            res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Failed to update broadcast status' });
+        }
+    }
     // ============================================================
     // Broadcasts
     // ============================================================

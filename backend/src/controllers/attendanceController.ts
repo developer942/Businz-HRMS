@@ -10,7 +10,10 @@ import {
   getRecentGpsDiagnostics,
 } from '../services/geofenceService.js';
 import { isCeoOrOwnerEmployee } from '../services/calculationEngine.js';
-import { resolveOvernightAttendanceSession } from '../services/shiftAttendanceEngine.js';
+import {
+  resolveOvernightAttendanceSession,
+  parseTimeOrIsoInTimezone,
+} from '../services/shiftAttendanceEngine.js';
 import { query } from '../config/database.js';
 
 export const getAttendanceLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -533,6 +536,62 @@ export const getGpsDiagnostics = async (req: Request, res: Response, next: NextF
   }
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isBlankPunchValue = (val?: string | null): boolean => {
+  if (!val) return true;
+  const clean = String(val).trim();
+  return (
+    !clean ||
+    clean === '-' ||
+    clean === '--:--' ||
+    clean === '—' ||
+    clean.toLowerCase().includes('missed') ||
+    clean.toLowerCase().includes('progress') ||
+    clean.toLowerCase() === 'none'
+  );
+};
+
+/**
+ * Maps UI / API correction status labels to canonical PostgreSQL `hr_attendance_status` enum values:
+ * ['Present', 'Absent', 'Late', 'Half Day', 'Work From Home', 'On Leave', 'Holiday', 'Week Off', 'Missing Punch']
+ */
+export const mapCorrectionStatusToDbEnum = (status: string): {
+  dbStatus: string;
+  dbMethod: string;
+  lateStatus: string;
+} => {
+  const s = String(status || '').trim();
+  switch (s) {
+    case 'MU':
+    case 'Missed Punch-Out':
+    case 'Missing Punch':
+      return { dbStatus: 'Missing Punch', dbMethod: 'Manual Punch', lateStatus: 'N/A' };
+    case 'Absent':
+      return { dbStatus: 'Absent', dbMethod: 'Manual Punch', lateStatus: 'N/A' };
+    case 'Unpaid Leave':
+      return { dbStatus: 'Absent', dbMethod: 'Unpaid Leave', lateStatus: 'N/A' };
+    case 'Paid Leave':
+    case 'On Leave':
+      return { dbStatus: 'On Leave', dbMethod: 'Manual Punch', lateStatus: 'N/A' };
+    case 'Holiday':
+      return { dbStatus: 'Holiday', dbMethod: 'Holiday', lateStatus: 'N/A' };
+    case 'Week Off':
+      return { dbStatus: 'Week Off', dbMethod: 'Holiday', lateStatus: 'N/A' };
+    case 'Half Day':
+      return { dbStatus: 'Half Day', dbMethod: 'Manual Punch', lateStatus: 'N/A' };
+    case 'Work From Home':
+      return { dbStatus: 'Work From Home', dbMethod: 'Manual Punch', lateStatus: 'On Time' };
+    case 'Field Visit':
+      return { dbStatus: 'Present', dbMethod: 'Field Visit', lateStatus: 'On Time' };
+    case 'Late':
+      return { dbStatus: 'Late', dbMethod: 'Manual Punch', lateStatus: 'Late (<30m)' };
+    case 'Present':
+    default:
+      return { dbStatus: 'Present', dbMethod: 'Manual Punch', lateStatus: 'On Time' };
+  }
+};
+
 export const correctAttendance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = req.user;
@@ -571,27 +630,61 @@ export const correctAttendance = async (req: Request, res: Response, next: NextF
     const employeeDbId = emp.id;
 
     let computedHours = validated.workingHours;
-    let cleanCheckIn = validated.checkIn || null;
-    let cleanCheckOut = validated.checkOut || null;
+    let rawCheckIn = isBlankPunchValue(validated.checkIn) ? null : String(validated.checkIn).trim();
+    let rawCheckOut = isBlankPunchValue(validated.checkOut) ? null : String(validated.checkOut).trim();
+    let cleanCheckIn: string | null = null;
+    let cleanCheckOut: string | null = null;
     let otHours = validated.otHours || 0;
 
-    const isNonWorking = ['Absent', 'Holiday', 'Week Off', 'Paid Leave', 'On Leave', 'Unpaid Leave'].includes(validated.status);
+    let effectiveRequestedStatus: string = validated.status;
+    const isRequestedMu =
+      effectiveRequestedStatus === 'MU' ||
+      effectiveRequestedStatus === 'Missed Punch-Out' ||
+      effectiveRequestedStatus === 'Missing Punch';
+
+    // If HR/CEO entered a valid Check-Out time while status was still MU / Missing Punch,
+    // automatically regularize to Present instead of discarding the entered Check-Out time!
+    if (isRequestedMu && rawCheckIn && rawCheckOut) {
+      effectiveRequestedStatus = 'Present';
+    }
+
+    const isNonWorking = ['Absent', 'Holiday', 'Week Off', 'Paid Leave', 'On Leave', 'Unpaid Leave'].includes(
+      effectiveRequestedStatus
+    );
+    const isFinalMu =
+      effectiveRequestedStatus === 'MU' ||
+      effectiveRequestedStatus === 'Missed Punch-Out' ||
+      effectiveRequestedStatus === 'Missing Punch';
 
     if (isNonWorking) {
       cleanCheckIn = null;
       cleanCheckOut = null;
       computedHours = 0;
       otHours = 0;
-    } else if (validated.status === 'MU' || validated.status === 'Missed Punch-Out') {
-      // Missed punch-out: check-out is missing, working hours & OT are strictly 0
+    } else if (isFinalMu) {
+      // Missed punch-out: keep converted TIMESTAMPTZ check-in, clear check-out, zero hours & OT
+      if (rawCheckIn) {
+        const parsedIn = parseTimeOrIsoInTimezone(rawCheckIn, validated.date);
+        if (!parsedIn) {
+          res.status(422).json({
+            success: false,
+            error: {
+              code: 'INVALID_TIMESTAMPS',
+              message: `Invalid check-in time format: '${rawCheckIn}'.`,
+            },
+          });
+          return;
+        }
+        cleanCheckIn = parsedIn.instant.toISOString();
+      }
       cleanCheckOut = null;
       computedHours = 0;
       otHours = 0;
-    } else if (cleanCheckIn && cleanCheckOut && cleanCheckOut !== '-' && cleanCheckOut !== '--:--') {
+    } else if (rawCheckIn && rawCheckOut) {
       const session = resolveOvernightAttendanceSession({
         attendanceDate: validated.date,
-        checkIn: cleanCheckIn,
-        checkOut: cleanCheckOut,
+        checkIn: rawCheckIn,
+        checkOut: rawCheckOut,
         unpaidBreakMinutes: validated.breakDurationMinutes || 0,
         deductBreakAlways: (validated.breakDurationMinutes || 0) > 0,
         allowAutoRollSameDateIsoCheckOut: true,
@@ -616,26 +709,62 @@ export const correctAttendance = async (req: Request, res: Response, next: NextF
       if (otHours <= 0 && session.otHours > 0) {
         otHours = session.otHours;
       }
-    } else if (validated.status === 'Half Day') {
-      if (!computedHours || computedHours <= 0) {
+    } else {
+      // Single punch or Half Day without both punches — still convert any provided time to ISO TIMESTAMPTZ
+      if (rawCheckIn) {
+        const parsedIn = parseTimeOrIsoInTimezone(rawCheckIn, validated.date);
+        if (!parsedIn) {
+          res.status(422).json({
+            success: false,
+            error: {
+              code: 'INVALID_TIMESTAMPS',
+              message: `Invalid check-in time format: '${rawCheckIn}'.`,
+            },
+          });
+          return;
+        }
+        cleanCheckIn = parsedIn.instant.toISOString();
+      }
+      if (rawCheckOut) {
+        const parsedOut = parseTimeOrIsoInTimezone(rawCheckOut, validated.date);
+        if (!parsedOut) {
+          res.status(422).json({
+            success: false,
+            error: {
+              code: 'INVALID_TIMESTAMPS',
+              message: `Invalid check-out time format: '${rawCheckOut}'.`,
+            },
+          });
+          return;
+        }
+        cleanCheckOut = parsedOut.instant.toISOString();
+      }
+      if (effectiveRequestedStatus === 'Half Day' && (!computedHours || computedHours <= 0)) {
         computedHours = 4.0;
       }
     }
 
-    // Try finding existing record in PostgreSQL
-    let existingRec: any = null;
-    try {
-      const existingRecResult = await query<any>(
-        `SELECT * FROM public.attendance_records
-         WHERE (employee_id = $1 OR employee_id = $2)
-           AND (date = $3 OR shift_date = $3)
-         LIMIT 1`,
-        [employeeDbId, canonicalEmpId, validated.date]
-      );
-      existingRec = existingRecResult.rows[0];
-    } catch (err: any) {
-      console.warn('[correctAttendance] Error fetching existing record:', err?.message || err);
-    }
+    const { dbStatus, dbMethod, lateStatus } = mapCorrectionStatusToDbEnum(effectiveRequestedStatus);
+
+    // Find existing record in PostgreSQL without passing non-UUID codes into UUID columns
+    const existingRecResult = UUID_REGEX.test(String(employeeDbId || ''))
+      ? await query<any>(
+          `SELECT * FROM public.attendance_records
+           WHERE employee_id = $1::uuid
+             AND (date = $2::date OR shift_date = $2::date)
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+           LIMIT 1`,
+          [employeeDbId, validated.date]
+        )
+      : await query<any>(
+          `SELECT * FROM public.attendance_records
+           WHERE employee_id::text = $1
+             AND (date = $2::date OR shift_date = $2::date)
+           ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+           LIMIT 1`,
+          [String(employeeDbId || canonicalEmpId), validated.date]
+        );
+    const existingRec = existingRecResult.rows[0] || null;
 
     const oldValues = existingRec
       ? {
@@ -646,74 +775,80 @@ export const correctAttendance = async (req: Request, res: Response, next: NextF
         }
       : null;
 
-    const finalStatus = validated.status === 'MU' ? 'Missed Punch-Out' : validated.status;
-    const newValues = {
-      status: finalStatus,
-      checkIn: cleanCheckIn,
-      checkOut: cleanCheckOut,
-      workingHours: computedHours || 0,
-      otHours,
-    };
-
+    const noteEntry = `Correction (${user.email}): ${validated.reason}`;
     let updatedRecord: any = null;
-    try {
-      if (existingRec) {
-        const updateResult = await query<any>(
-          `UPDATE public.attendance_records
-           SET status = $1,
-               check_in = $2,
-               check_out = $3,
-               working_hours = $4,
-               calculated_ot_hours = $5,
-               notes = COALESCE(notes || ' | ', '') || $6,
-               updated_at = NOW()
-           WHERE id = $7
-           RETURNING *`,
-          [
-            newValues.status,
-            cleanCheckIn,
-            cleanCheckOut,
-            computedHours || 0,
-            otHours,
-            `Correction (${user.email}): ${validated.reason}`,
-            existingRec.id,
-          ]
-        );
-        updatedRecord = updateResult.rows[0];
-      } else {
-        const insertResult = await query<any>(
-          `INSERT INTO public.attendance_records (
-             id, employee_id, date, shift_date, status, check_in, check_out, working_hours, calculated_ot_hours, method, notes, created_at, updated_at
-           ) VALUES (
-             gen_random_uuid(), $1, $2, $2, $3, $4, $5, $6, $7, 'Manual', $8, NOW(), NOW()
-           ) RETURNING *`,
-          [
-            employeeDbId,
-            validated.date,
-            newValues.status,
-            cleanCheckIn,
-            cleanCheckOut,
-            computedHours || 0,
-            otHours,
-            `Correction (${user.email}): ${validated.reason}`,
-          ]
-        );
-        updatedRecord = insertResult.rows[0];
-      }
-    } catch (err: any) {
-      console.warn('[correctAttendance] Error saving attendance record in DB:', err?.message || err);
-      updatedRecord = {
-        id: existingRec?.id || `att-corrected-${Date.now()}`,
-        employee_id: employeeDbId,
-        date: validated.date,
-        shift_date: validated.date,
-        status: newValues.status,
-        check_in: cleanCheckIn,
-        check_out: cleanCheckOut,
-        working_hours: computedHours || 0,
-        calculated_ot_hours: otHours,
-      };
+
+    if (existingRec) {
+      const updateResult = await query<any>(
+        `UPDATE public.attendance_records
+         SET status = $1::hr_attendance_status,
+             check_in = $2::timestamptz,
+             check_out = $3::timestamptz,
+             working_hours = $4,
+             calculated_ot_hours = $5,
+             late_status = $6,
+             method = $7,
+             notes = CASE
+               WHEN notes IS NULL OR BTRIM(notes) = '' THEN $8
+               ELSE notes || ' | ' || $8
+             END,
+             updated_at = NOW()
+         WHERE id = $9::uuid
+         RETURNING *`,
+        [
+          dbStatus,
+          cleanCheckIn,
+          cleanCheckOut,
+          computedHours || 0,
+          otHours,
+          lateStatus,
+          dbMethod,
+          noteEntry,
+          existingRec.id,
+        ]
+      );
+      updatedRecord = updateResult.rows[0];
+    } else {
+      const insertResult = await query<any>(
+        `INSERT INTO public.attendance_records (
+           id, employee_id, date, shift_date, status, check_in, check_out, working_hours, calculated_ot_hours, late_status, method, notes, created_at, updated_at
+         ) VALUES (
+           gen_random_uuid(), $1::uuid, $2::date, $2::date, $3::hr_attendance_status, $4::timestamptz, $5::timestamptz, $6, $7, $8, $9, $10, NOW(), NOW()
+         ) RETURNING *`,
+        [
+          employeeDbId,
+          validated.date,
+          dbStatus,
+          cleanCheckIn,
+          cleanCheckOut,
+          computedHours || 0,
+          otHours,
+          lateStatus,
+          dbMethod,
+          noteEntry,
+        ]
+      );
+      updatedRecord = insertResult.rows[0];
     }
+
+    if (!updatedRecord) {
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'ATTENDANCE_PERSIST_FAILED',
+          message: 'Attendance correction could not be persisted to the database.',
+        },
+      });
+      return;
+    }
+
+    const newValues = {
+      status: updatedRecord.status || dbStatus,
+      checkIn: updatedRecord.check_in ?? cleanCheckIn,
+      checkOut: updatedRecord.check_out ?? cleanCheckOut,
+      workingHours: Number(updatedRecord.working_hours ?? computedHours ?? 0),
+      otHours: Number(updatedRecord.calculated_ot_hours ?? otHours ?? 0),
+    };
 
     // Record audit trail in auth_audit_logs
     try {

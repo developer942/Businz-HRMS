@@ -47,7 +47,8 @@ crmRouter.post('/messages/template', requirePermission('whatsapp_crm', 'edit'), 
 // 6. Broadcasts (Accessible to all authorized HRMS users: Employee, HR, Accounts, CEO)
 crmRouter.get('/broadcasts', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getBroadcasts(req, res));
 crmRouter.get('/broadcasts/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getBroadcastById(req, res));
-crmRouter.post('/broadcasts', requirePermission('whatsapp_crm', 'create'), (req, res) => crmController.createBroadcast(req, res));
+crmRouter.post('/broadcasts', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.createBroadcast(req, res));
+crmRouter.patch('/broadcasts/:id/status', requirePermission('whatsapp_crm', 'edit'), (req, res) => crmController.updateBroadcastStatus(req, res));
 // 7. Templates
 crmRouter.get('/templates', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getTemplates(req, res));
 crmRouter.get('/templates/:id', requirePermission('whatsapp_crm', 'view'), (req, res) => crmController.getTemplateById(req, res));

@@ -28,6 +28,7 @@ export class PettyCashController {
         custodianEmployeeId: parsed.employeeCode,
         custodianName: parsed.employeeName,
         assignedById: user.id,
+        assignedByEmployeeCode: user.employeeId,
         assignedByName: user.name || user.email,
         assignedByRole: user.role,
         lowBalanceThreshold: parsed.lowBalanceThreshold,
@@ -58,6 +59,7 @@ export class PettyCashController {
         newEmployeeName: parsed.newEmployeeName,
         newEmployeeCode: parsed.newEmployeeCode,
         assignedById: user.id,
+        assignedByEmployeeCode: user.employeeId,
         assignedByName: user.name || user.email,
         assignedByRole: user.role,
         reconciliationNotes: parsed.reconciliationNotes,
@@ -83,6 +85,20 @@ export class PettyCashController {
       res.status(200).json({
         success: true,
         data: account,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // 3b. Get Custodian Account History
+  async getAccountHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.user?.company_id || 'company-a';
+      const accounts = await pettyCashService.getAccountHistory(companyId);
+      res.status(200).json({
+        success: true,
+        data: accounts,
       });
     } catch (err) {
       next(err);

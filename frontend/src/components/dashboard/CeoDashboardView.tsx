@@ -650,18 +650,18 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
               </div>
             </div>
 
-            {/* 2. Finance and Claim This Month */}
+            {/* 2. Finance and Claims This Month */}
             <div 
               className="ceo-kpi-card" 
               onClick={() => setActiveModule('field_allowance')}
-              title="Click to open Finance and Claim Management"
+              title="Click to open Finance and Claims Management"
             >
               <div className="ceo-kpi-top">
                 <div className="ceo-kpi-icon-box" style={{ backgroundColor: '#E0F2FE', color: '#0284C7' }}>
                   <Receipt size={18} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="ceo-kpi-label">Finance and Claim This Month</div>
+                  <div className="ceo-kpi-label">Finance and Claims This Month</div>
                   <div className="ceo-kpi-value">
                     {formatCurrency(monthClaimsTotal)}
                   </div>
@@ -1079,13 +1079,13 @@ export const CeoDashboardView: React.FC<CeoDashboardViewProps> = ({
                   <div 
                     className="ceo-attention-item" 
                     onClick={() => handleOpenAttention('expense', 'field_allowance')}
-                    title="Click to view expense / field allowance"
+                    title="Click to view Finance and Claims"
                   >
                     <div className="ceo-attention-icon-box" style={{ backgroundColor: '#E0F2FE', color: '#0284C7' }}>
                       <IndianRupee size={15} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="ceo-attention-title">Expense / Field Allowance</div>
+                      <div className="ceo-attention-title">Finance and Claims</div>
                       <div className="ceo-attention-desc">
                         {count > 0 ? `${count} requests pending` : 'All caught up'}
                       </div>

@@ -102,7 +102,7 @@ describe('BUSINZ HRMS — Security Remediation Phase 1 Validation Suite', () => 
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('FORBIDDEN');
       expect(body.error.message).toContain('authorized to view your own payslips');
     });
 
@@ -113,7 +113,7 @@ describe('BUSINZ HRMS — Security Remediation Phase 1 Validation Suite', () => 
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('FORBIDDEN');
     });
 
     it('blocks regular employee from querying another employee records via /records?employeeId=EMP-001', async () => {
@@ -123,7 +123,7 @@ describe('BUSINZ HRMS — Security Remediation Phase 1 Validation Suite', () => 
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('FORBIDDEN');
       expect(body.error.message).toContain('not authorized to view payroll records for other employees');
     });
 
@@ -319,7 +319,7 @@ describe('BUSINZ HRMS — Security Remediation Phase 1 Validation Suite', () => 
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('HRMS_FORBIDDEN');
     });
 
     it('blocks ordinary employee from deleting CRM templates with 403 Forbidden', async () => {
@@ -330,7 +330,7 @@ describe('BUSINZ HRMS — Security Remediation Phase 1 Validation Suite', () => 
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('HRMS_FORBIDDEN');
     });
 
     it('blocks unauthenticated access to /api/v1/whatsapp/config', async () => {
@@ -345,7 +345,7 @@ describe('BUSINZ HRMS — Security Remediation Phase 1 Validation Suite', () => 
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.success).toBe(false);
-      expect(body.error.code).toBe('FORBIDDEN');
+      expect(body.error.code).toBe('HRMS_FORBIDDEN');
     });
   });
 });

@@ -40,7 +40,7 @@ export const fieldAllowanceDistributionSchema = z.object({
     distributionDate: z.string().date(),
     paymentMethod: z.string().trim().min(2).max(100),
     referenceNumber: z.string().trim().max(150).optional().nullable(),
-    paymentProofPath: z.string().trim().max(3_000_000).optional().nullable(),
+    paymentProofPath: z.string().trim().max(10_000_000).optional().nullable(),
     remarks: cleanOptional,
 }).superRefine((data, ctx) => {
     if (data.paymentMethod.trim().toLowerCase() !== 'cash' && !data.paymentProofPath?.trim()) {
@@ -49,21 +49,36 @@ export const fieldAllowanceDistributionSchema = z.object({
 });
 export const fieldAllowanceDailyReportSchema = z.object({
     expenseDate: z.string().date(),
-    category: z.enum(['TRAVEL', 'FOOD', 'ROOM', 'BUS', 'FUEL', 'OTHER']),
-    amount: z.coerce.number().finite().positive().max(10_000_000),
-    description: z.string().trim().min(2).max(500),
-    attachmentPath: z.string().trim().max(2_000_000).optional().nullable(),
+    category: z.enum([
+        'TRAVEL',
+        'BUS',
+        'TRAIN',
+        'TAXI_AUTO',
+        'FUEL',
+        'FOOD',
+        'ROOM',
+        'PARKING',
+        'TOLL',
+        'OTHER',
+    ]),
+    amount: z.coerce.number().finite().positive('Amount must be greater than 0').max(10_000_000),
+    description: z.string().trim().min(2, 'Description must be at least 2 characters').max(500),
+    attachmentPath: z
+        .string({ required_error: 'Proof / receipt attachment is mandatory for every daily expense' })
+        .trim()
+        .min(5, 'Proof / receipt attachment is mandatory for every daily expense')
+        .max(10_000_000, 'Proof payload exceeds maximum size limit'),
 });
 export const fieldAllowanceSubmitBalanceSchema = z.object({
     paymentMethod: z.string().trim().min(2).max(100).optional().default('Cash'),
     referenceNumber: z.string().trim().max(150).optional().nullable(),
-    paymentProofPath: z.string().trim().max(3_000_000).optional().nullable(),
+    paymentProofPath: z.string().trim().max(10_000_000).optional().nullable(),
     remarks: cleanOptional,
 });
 export const fieldAllowanceConfirmBalanceSchema = z.object({
     paymentMethod: z.string().trim().max(100).optional().nullable(),
     referenceNumber: z.string().trim().max(150).optional().nullable(),
-    paymentProofPath: z.string().trim().max(3_000_000).optional().nullable(),
+    paymentProofPath: z.string().trim().max(10_000_000).optional().nullable(),
     remarks: cleanOptional,
 });
 //# sourceMappingURL=fieldAllowanceValidators.js.map

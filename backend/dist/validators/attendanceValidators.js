@@ -73,6 +73,7 @@ export const attendanceCorrectionSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
     status: z.enum([
         'Present',
+        'Late',
         'Half Day',
         'Paid Leave',
         'On Leave',
@@ -82,6 +83,7 @@ export const attendanceCorrectionSchema = z.object({
         'Week Off',
         'Work From Home',
         'Field Visit',
+        'Missing Punch',
         'Missed Punch-Out',
         'MU',
     ]),

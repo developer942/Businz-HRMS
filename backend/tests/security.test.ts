@@ -13,7 +13,7 @@ describe('VRM Enterprise HRMS — Security Hardening & Vulnerability Test Suite'
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(body.error.code).toBe('HRMS_UNAUTHENTICATED');
   });
 
   it('rejects protected payroll endpoints when no token is provided', async () => {
@@ -21,22 +21,22 @@ describe('VRM Enterprise HRMS — Security Hardening & Vulnerability Test Suite'
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('UNAUTHORIZED');
+    expect(body.error.code).toBe('HRMS_UNAUTHENTICATED');
   });
 
   // --------------------------------------------------------------------------
   // 2. Token Integrity & Forgery Protection
   // --------------------------------------------------------------------------
-  it('rejects requests with forged/invalid JWT tokens with 403 Forbidden', async () => {
+  it('rejects requests with forged/invalid JWT tokens with 401 Unauthorized', async () => {
     const res = await fetch(`${BASE_URL}/api/v1/employees`, {
       headers: {
         Authorization: 'Bearer invalid.forged.jwt.signature',
       },
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('HRMS_TOKEN_INVALID');
   });
 
   it('accepts requests with authentically signed JWT tokens', async () => {
@@ -144,7 +144,7 @@ describe('VRM Enterprise HRMS — Security Hardening & Vulnerability Test Suite'
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('HRMS_FORBIDDEN');
   });
 
   it('blocks Employee role from modifying field tracking assignments', async () => {
@@ -173,7 +173,7 @@ describe('VRM Enterprise HRMS — Security Hardening & Vulnerability Test Suite'
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('HRMS_FORBIDDEN');
   });
 
   // --------------------------------------------------------------------------

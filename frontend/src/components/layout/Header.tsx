@@ -44,7 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
     setSearchQuery,
     setActiveModule,
     setActiveSettingsTab,
-    resetToDashboard
+    resetToDashboard,
+    hasPermission
   } = useHRMS();
   const { setSelectedGlobalTaskId } = useHRMS() as any;
 
@@ -602,6 +603,9 @@ export const Header: React.FC<HeaderProps> = ({
                           targetMod = 'payroll';
                         } else if (n.category === 'Attendance') {
                           targetMod = 'attendance';
+                        }
+                        if (targetMod === 'accounts_payment' && !hasPermission('accounts_payment', 'view')) {
+                          targetMod = 'field_allowance';
                         }
                         if (targetMod && typeof setActiveModule === 'function') {
                           setActiveModule(targetMod as any);

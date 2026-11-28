@@ -3,7 +3,6 @@
 .flutter-plugins-dependencies
 .packages
 build/
-pubspec.lock
 android/.gradle/
 android/local.properties
 ios/Pods/

@@ -42,26 +42,42 @@ import './FieldAllowance.css';
 
 const STATUS_LABELS: Record<FieldAllowanceStatus, string> = {
   DRAFT: 'Draft',
-  PENDING_APPROVAL: 'Pending Approval',
+  PENDING_APPROVAL: 'Pending Advance Approval',
+  PENDING_ADVANCE_APPROVAL: 'Pending Advance Approval',
   CORRECTION_REQUESTED: 'Correction Requested',
   REJECTED: 'Rejected',
-  APPROVED: 'Approved',
-  AMOUNT_DISTRIBUTED: 'Amount Distributed',
-  IN_PROGRESS: 'In Progress',
+  APPROVED: 'Approved (Pending Advance)',
+  PENDING_DISTRIBUTION: 'Pending Advance Distribution',
+  AMOUNT_DISTRIBUTED: 'Advance Disbursed',
+  ACTIVE_VISIT: 'Active Field Visit',
+  IN_PROGRESS: 'Visit In Progress',
+  CLAIM_SUBMITTED: 'Claim Submitted (Pending Approval)',
+  PENDING_SETTLEMENT_VERIFICATION: 'Pending Settlement Verification',
+  PENDING_REIMBURSEMENT: 'Pending Reimbursement',
+  PENDING_RETURN: 'Pending Return to Accounts',
   COMPLETED: 'Completed',
+  SETTLED: 'Settled',
 };
 
 const getStatusPillClass = (status: FieldAllowanceStatus): string => {
   switch (status) {
     case 'PENDING_APPROVAL':
+    case 'PENDING_ADVANCE_APPROVAL':
+    case 'CLAIM_SUBMITTED':
+    case 'PENDING_SETTLEMENT_VERIFICATION':
+    case 'PENDING_RETURN':
     case 'CORRECTION_REQUESTED':
       return 'warning';
     case 'APPROVED':
+    case 'PENDING_DISTRIBUTION':
     case 'AMOUNT_DISTRIBUTED':
+    case 'PENDING_REIMBURSEMENT':
       return 'info';
+    case 'ACTIVE_VISIT':
     case 'IN_PROGRESS':
       return 'purple';
     case 'COMPLETED':
+    case 'SETTLED':
       return 'success';
     case 'REJECTED':
       return 'danger';
@@ -69,6 +85,49 @@ const getStatusPillClass = (status: FieldAllowanceStatus): string => {
       return 'neutral';
   }
 };
+
+async function compressImageFile(file: File, maxDimension = 1600, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Failed to parse image for compression'));
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(String(e.target?.result || ''));
+          return;
+        }
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.src = String(e.target?.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 const formatInr = (value: number): string =>
   `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -142,7 +201,7 @@ export const FieldAllowanceModule: React.FC = () => {
       setRows(requestRows);
       setSummary(summaryData);
     } catch (err) {
-      showToast('error', err instanceof Error ? err.message : 'Unable to load Finance and Claim records.');
+      showToast('error', err instanceof Error ? err.message : 'Unable to load Finance and Claims records.');
     } finally {
       setLoading(false);
     }
@@ -321,8 +380,8 @@ export const FieldAllowanceModule: React.FC = () => {
   const handleExportPDF = () => {
     downloadPDF(
       getExportData(),
-      'Finance and Claim Register & Approvals',
-      `Finance_and_Claim_Report_${todayIso()}`,
+      'Finance and Claims Register & Approvals',
+      `Finance_and_Claims_Report_${todayIso()}`,
       exportColumns
     );
   };
@@ -367,7 +426,7 @@ export const FieldAllowanceModule: React.FC = () => {
         <div className="petty-cash-title-group">
           <h1>
             <WalletCards size={28} color="var(--color-primary-blue)" />
-            {isManagement ? 'Finance and Claim Management' : 'My Finance and Claims'}
+            {isManagement ? 'Finance and Claims Management' : 'My Finance and Claims'}
           </h1>
         </div>
 
@@ -380,10 +439,10 @@ export const FieldAllowanceModule: React.FC = () => {
                 setEditingDetail(null);
                 setIsRequestModalOpen(true);
               }}
-              title="New Claim Request"
+              title="New Finance & Claims Visit"
             >
               <Plus size={18} strokeWidth={2.5} />
-              <span>Request Claim</span>
+              <span>New Finance & Claims Visit</span>
             </button>
           )}
 
@@ -402,31 +461,78 @@ export const FieldAllowanceModule: React.FC = () => {
         <div className="kpi-grid" style={{ marginBottom: '20px' }}>
           <div
             className="kpi-card"
-            onClick={() => {
-              setStatusFilter('ALL');
-              setCurrentPage(1);
-            }}
             style={{
-              cursor: 'pointer',
-              border: statusFilter === 'ALL' ? '2px solid #0E7490' : '1px solid #E7ECF3',
+              border: '1px solid #E7ECF3',
               boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-              backgroundColor: statusFilter === 'ALL' ? '#ECFEFF' : '#FFFFFF',
-              transition: 'all 0.2s ease',
+              backgroundColor: '#FFFFFF',
             }}
-            title="Click to view all Finance and Claim requests"
           >
             <div className="kpi-card-header">
-              <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL REQUESTS</span>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>ALLOCATED AMOUNT</span>
+              <div className="kpi-icon-wrapper emerald" style={{ color: '#10B981' }}>
+                <ShieldCheck size={16} />
+              </div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value" style={{ color: '#059669' }}>
+                {formatInr(kpiMetrics.totalDistributed)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                Confirmed Advance Disbursements
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="kpi-card"
+            style={{
+              border: '1px solid #E7ECF3',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+              backgroundColor: '#FFFFFF',
+            }}
+          >
+            <div className="kpi-card-header">
+              <span style={{ fontWeight: 700, color: '#64748B' }}>SPENT AMOUNT</span>
               <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}>
-                <Layers size={16} />
+                <TrendingDown size={16} />
               </div>
             </div>
             <div className="kpi-card-body">
               <div className="kpi-value" style={{ color: '#0E7490' }}>
-                {kpiMetrics.totalRequests}
+                {formatInr(kpiMetrics.totalSpent)}
               </div>
               <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
-                Approved: {kpiMetrics.approvedRequests} • Active Trips: {kpiMetrics.activeTrips}
+                Sum of Recorded Daily Expenses
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="kpi-card"
+            style={{
+              border: '1px solid #E7ECF3',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+              backgroundColor: '#FFFFFF',
+            }}
+          >
+            <div className="kpi-card-header">
+              <span style={{ fontWeight: 700, color: '#64748B' }}>NET BALANCE</span>
+              <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}>
+                <WalletCards size={16} />
+              </div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value" style={{ color: '#0E7490' }}>
+                {kpiMetrics.netBalance < 0
+                  ? `-${formatInr(Math.abs(kpiMetrics.netBalance))}`
+                  : formatInr(kpiMetrics.netBalance)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                {kpiMetrics.netBalance < 0
+                  ? 'Company Owes (Reimbursement)'
+                  : kpiMetrics.netBalance > 0
+                  ? 'Unspent Advance Balance'
+                  : 'Fully Settled / Balanced'}
               </div>
             </div>
           </div>
@@ -471,84 +577,12 @@ export const FieldAllowanceModule: React.FC = () => {
               </div>
             </div>
           </div>
-
-          <div
-            className="kpi-card"
-            onClick={() => {
-              setStatusFilter((prev) => (prev === 'ACTIVE_VISITS' ? 'ALL' : 'ACTIVE_VISITS'));
-              setCurrentPage(1);
-            }}
-            style={{
-              cursor: 'pointer',
-              border: statusFilter === 'ACTIVE_VISITS' ? '2px solid #059669' : '1px solid #E7ECF3',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-              backgroundColor: statusFilter === 'ACTIVE_VISITS' ? '#ECFDF5' : '#FFFFFF',
-              transition: 'all 0.2s ease',
-            }}
-            title="Click to filter Active Field Visits"
-          >
-            <div className="kpi-card-header">
-              <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL DISTRIBUTED</span>
-              <div className="kpi-icon-wrapper emerald" style={{ color: '#10B981' }}>
-                <ShieldCheck size={16} />
-              </div>
-            </div>
-            <div className="kpi-card-body">
-              <div className="kpi-value" style={{ color: '#059669' }}>
-                {formatInr(kpiMetrics.totalDistributed)}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
-                {kpiMetrics.activeTrips} Active Trip{kpiMetrics.activeTrips === 1 ? '' : 's'} in Progress
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="kpi-card"
-            style={{
-              border: '1px solid #E7ECF3',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-              backgroundColor: '#FFFFFF',
-            }}
-          >
-            <div className="kpi-card-header">
-              <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL SPENT & VOUCHERED</span>
-              <div className="kpi-icon-wrapper rose" style={{ color: '#EF4444' }}>
-                <TrendingDown size={16} />
-              </div>
-            </div>
-            <div className="kpi-card-body">
-              <div className="kpi-value" style={{ color: '#DC2626' }}>
-                {formatInr(kpiMetrics.totalSpent)}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
-                Unspent Balance: {formatInr(kpiMetrics.netBalance)}
-              </div>
-            </div>
-          </div>
         </div>
       ) : (
         <div className="kpi-grid" style={{ marginBottom: '20px' }}>
           <div className="kpi-card" style={{ border: '1px solid #E7ECF3', backgroundColor: '#FFFFFF' }}>
             <div className="kpi-card-header">
-              <span style={{ fontWeight: 700, color: '#64748B' }}>AVAILABLE ADVANCE BALANCE</span>
-              <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}>
-                <WalletCards size={16} />
-              </div>
-            </div>
-            <div className="kpi-card-body">
-              <div
-                className="kpi-value"
-                style={{ color: kpiMetrics.netBalance < 0 ? '#DC2626' : '#0E7490' }}
-              >
-                {formatInr(kpiMetrics.netBalance)}
-              </div>
-            </div>
-          </div>
-
-          <div className="kpi-card" style={{ border: '1px solid #E7ECF3', backgroundColor: '#FFFFFF' }}>
-            <div className="kpi-card-header">
-              <span style={{ fontWeight: 700, color: '#64748B' }}>ALLOCATED ADVANCE</span>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>ALLOCATED AMOUNT</span>
               <div className="kpi-icon-wrapper emerald" style={{ color: '#10B981' }}>
                 <ShieldCheck size={16} />
               </div>
@@ -557,19 +591,48 @@ export const FieldAllowanceModule: React.FC = () => {
               <div className="kpi-value" style={{ color: '#059669' }}>
                 {formatInr(kpiMetrics.totalDistributed)}
               </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                Confirmed Advance Disbursements
+              </div>
             </div>
           </div>
 
           <div className="kpi-card" style={{ border: '1px solid #E7ECF3', backgroundColor: '#FFFFFF' }}>
             <div className="kpi-card-header">
-              <span style={{ fontWeight: 700, color: '#64748B' }}>TOTAL SPENT & VOUCHERED</span>
-              <div className="kpi-icon-wrapper rose" style={{ color: '#EF4444' }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>SPENT AMOUNT</span>
+              <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}>
                 <TrendingDown size={16} />
               </div>
             </div>
             <div className="kpi-card-body">
-              <div className="kpi-value" style={{ color: '#DC2626' }}>
+              <div className="kpi-value" style={{ color: '#0E7490' }}>
                 {formatInr(kpiMetrics.totalSpent)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                Sum of Recorded Daily Expenses
+              </div>
+            </div>
+          </div>
+
+          <div className="kpi-card" style={{ border: '1px solid #E7ECF3', backgroundColor: '#FFFFFF' }}>
+            <div className="kpi-card-header">
+              <span style={{ fontWeight: 700, color: '#64748B' }}>BALANCE</span>
+              <div className="kpi-icon-wrapper" style={{ color: '#0E7490' }}>
+                <WalletCards size={16} />
+              </div>
+            </div>
+            <div className="kpi-card-body">
+              <div className="kpi-value" style={{ color: '#0E7490' }}>
+                {kpiMetrics.netBalance < 0
+                  ? `-${formatInr(Math.abs(kpiMetrics.netBalance))}`
+                  : formatInr(kpiMetrics.netBalance)}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '2px' }}>
+                {kpiMetrics.netBalance < 0
+                  ? 'Company Owes (Reimbursement)'
+                  : kpiMetrics.netBalance > 0
+                  ? 'Unspent Advance Balance'
+                  : 'Fully Balanced'}
               </div>
             </div>
           </div>
@@ -596,6 +659,9 @@ export const FieldAllowanceModule: React.FC = () => {
               <div className="kpi-value" style={{ color: '#D97706' }}>
                 {kpiMetrics.pendingApproval}
               </div>
+              <div style={{ fontSize: '0.74rem', color: '#92400E', marginTop: '2px' }}>
+                In Review
+              </div>
             </div>
           </div>
         </div>
@@ -608,7 +674,7 @@ export const FieldAllowanceModule: React.FC = () => {
             <h3 className="section-card-title">
               <FileText size={20} color="var(--color-primary-blue)" />
               {isManagement
-                ? 'Finance and Claim Overview & Approvals'
+                ? 'Finance and Claims Overview & Approvals'
                 : 'My Claims & Requests'}
               {kpiMetrics.pendingApproval > 0 && (
                 <span className="tab-badge">{kpiMetrics.pendingApproval} Pending</span>
@@ -712,7 +778,7 @@ export const FieldAllowanceModule: React.FC = () => {
         {loading && rows.length === 0 ? (
           <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
             <Loader2 size={24} className="fa-spin" style={{ margin: '0 auto 10px', display: 'block' }} />
-            Loading Finance and Claim records...
+            Loading Finance and Claims records...
           </div>
         ) : (
           <>
@@ -924,7 +990,8 @@ export const FieldAllowanceModule: React.FC = () => {
                               >
                                 Distribute Cash
                               </button>
-                            ) : (isAccountsUser || isManagement) &&
+                            ) : isAccountsUser &&
+                              !isManagement &&
                               row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' ? (
                               <>
                                 <button
@@ -1140,7 +1207,7 @@ export const FieldAllowanceModule: React.FC = () => {
                           <Send size={14} /> Submit Balance to Accounts ({formatInr(Math.abs(row.balance))})
                         </button>
                       )}
-                      {(isAccountsUser || isManagement) && row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
+                      {isAccountsUser && !isManagement && row.balance_return_status === 'SUBMITTED_TO_ACCOUNTS' && (
                         <button
                           type="button"
                           className="btn-primary"
@@ -1315,7 +1382,7 @@ const FieldAllowanceRequestModal: React.FC<FieldAllowanceRequestModalProps> = ({
         <div className="modal-header">
           <h3 className="modal-title">
             <WalletCards size={20} color="var(--color-primary-blue)" />
-            {initial ? `Update Claim — ${initial.trip_code}` : 'Request Finance and Claim'}
+            {initial ? `Update Visit — ${initial.trip_code}` : 'New Finance and Claims Visit'}
           </h3>
           <button type="button" className="modal-close-btn" onClick={onClose} title="Close">
             <X size={20} />
@@ -1585,6 +1652,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
   onActionSuccess,
   onActionError,
 }) => {
+  const { currentUser } = useHRMS();
   const [approvedAmount, setApprovedAmount] = useState<string>(String(detail.requested_amount || 0));
   const [decisionRemarks, setDecisionRemarks] = useState<string>('');
   const [distribution, setDistribution] = useState({
@@ -1617,11 +1685,17 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
 
   const isWorking = busy || localBusy;
 
+  const isTripOwner = detail.employee_id === currentUser.id || detail.employee_id === currentUser.employeeId;
   const canAddExpense =
-    !isManagement &&
-    !isAccounts &&
-    (['AMOUNT_DISTRIBUTED', 'IN_PROGRESS'].includes(detail.status) ||
-      (!detail.advance_required && detail.status === 'APPROVED'));
+    (isTripOwner || (!isManagement && !isAccounts)) &&
+    [
+      'ACTIVE_VISIT',
+      'IN_PROGRESS',
+      'AMOUNT_DISTRIBUTED',
+      'APPROVED',
+      'DRAFT',
+      'CORRECTION_REQUESTED',
+    ].includes(detail.status);
 
   const handleDecision = async (decision: FieldAllowanceDecision) => {
     if (decision !== 'APPROVED' && !decisionRemarks.trim()) {
@@ -1629,7 +1703,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
       return;
     }
     const numApproved = decision === 'APPROVED' ? Number(approvedAmount || 0) : 0;
-    if (decision === 'APPROVED' && detail.advance_required && (isNaN(numApproved) || numApproved < 0)) {
+    if (decision === 'APPROVED' && detail.advance_required && detail.status === 'PENDING_APPROVAL' && (isNaN(numApproved) || numApproved < 0)) {
       onActionError('Please enter a valid approved amount.');
       return;
     }
@@ -1672,9 +1746,9 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
         ...distribution,
         distributedAmount: numDist,
       });
-      await onActionSuccess(`Advance of ${formatInr(numDist)} distributed for ${detail.trip_code}.`);
+      await onActionSuccess(`Disbursement of ${formatInr(numDist)} recorded for ${detail.trip_code}.`);
     } catch (err) {
-      onActionError(err instanceof Error ? err.message : 'Unable to record advance distribution.');
+      onActionError(err instanceof Error ? err.message : 'Unable to record disbursement.');
     } finally {
       setLocalBusy(false);
     }
@@ -1686,6 +1760,10 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
       onActionError('Please enter a valid expense amount and description.');
       return;
     }
+    if (!expense.attachmentPath) {
+      onActionError('Bill / proof receipt is mandatory for every daily expense.');
+      return;
+    }
     try {
       setLocalBusy(true);
       await fieldAllowanceService.addDailyReport(detail.id, {
@@ -1693,7 +1771,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
         category: expense.category,
         amount: numAmt,
         description: expense.description.trim(),
-        attachmentPath: expense.attachmentPath || undefined,
+        attachmentPath: expense.attachmentPath,
       });
       setExpense((prev) => ({ ...prev, amount: '', description: '', attachmentPath: '', fileName: '' }));
       await onActionSuccess('Daily expense added successfully.');
@@ -1708,7 +1786,12 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
     try {
       setLocalBusy(true);
       await fieldAllowanceService.complete(detail.id);
-      await onActionSuccess(`Field visit ${detail.trip_code} marked as Completed.`);
+      const msg = !detail.advance_required
+        ? Number(detail.total_spent || 0) > 0
+          ? `Visit completed and reimbursement claim submitted for ${detail.trip_code}.`
+          : `Visit completed for ${detail.trip_code}.`
+        : `Field visit ${detail.trip_code} marked as completed and submitted for settlement verification.`;
+      await onActionSuccess(msg);
     } catch (err) {
       onActionError(err instanceof Error ? err.message : 'Unable to complete field visit.');
     } finally {
@@ -1749,18 +1832,31 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
     }
   };
 
-  const handleFileRead = (
+  const handleFileRead = async (
     file: File | undefined,
     onLoaded: (dataUrl: string, name: string) => void
   ) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      onActionError('Proof file must be 2 MB or smaller.');
-      return;
+    try {
+      const type = file.type.toLowerCase();
+      if (type.startsWith('image/')) {
+        const compressedDataUrl = await compressImageFile(file, 1600, 0.82);
+        onLoaded(compressedDataUrl, file.name);
+      } else if (type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        if (file.size > 5 * 1024 * 1024) {
+          onActionError('PDF receipt file must be 5 MB or smaller.');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onerror = () => onActionError('Failed to read PDF file.');
+        reader.onload = () => onLoaded(String(reader.result || ''), file.name);
+        reader.readAsDataURL(file);
+      } else {
+        onActionError('Unsupported file format. Please upload an image (JPG, PNG) or PDF document.');
+      }
+    } catch (err) {
+      onActionError(err instanceof Error ? err.message : 'Error processing receipt file.');
     }
-    const reader = new FileReader();
-    reader.onload = () => onLoaded(String(reader.result || ''), file.name);
-    reader.readAsDataURL(file);
   };
 
   return (
@@ -1939,7 +2035,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
             )}
 
           {/* 1. MANAGEMENT APPROVAL DECISION SECTION (Petty Cash CeoApprovalModal Style) */}
-          {isManagement && detail.status === 'PENDING_APPROVAL' && (
+          {isManagement && ['PENDING_APPROVAL', 'PENDING_ADVANCE_APPROVAL', 'CLAIM_SUBMITTED', 'PENDING_SETTLEMENT_VERIFICATION'].includes(detail.status) && (
             <div
               style={{
                 background: '#FFFBEB',
@@ -1950,11 +2046,17 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
               }}
             >
               <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 800, color: '#92400E' }}>
-                Review & Approval Decision
+                {detail.status === 'CLAIM_SUBMITTED'
+                  ? `Review Reimbursement Claim (Total Spent: ${formatInr(detail.total_spent)})`
+                  : detail.status === 'PENDING_SETTLEMENT_VERIFICATION'
+                  ? `Verify Trip Settlement (Spent: ${formatInr(detail.total_spent)}, Allocated: ${formatInr(detail.allocated_amount)})`
+                  : 'Review & Advance Approval Decision'}
               </h4>
               <div className="form-row">
                 <div className="form-group" style={{ marginBottom: '12px' }}>
-                  <label>Approved Advance Amount (₹)</label>
+                  <label>
+                    {detail.status === 'CLAIM_SUBMITTED' ? 'Claim Amount to Approve (₹)' : 'Approved Advance Amount (₹)'}
+                  </label>
                   <input
                     type="text"
                     readOnly
@@ -1968,7 +2070,13 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                       color: '#475569',
                       cursor: 'not-allowed',
                     }}
-                    value={detail.advance_required ? formatInr(detail.requested_amount) : 'No Advance'}
+                    value={
+                      detail.status === 'CLAIM_SUBMITTED'
+                        ? formatInr(detail.total_spent)
+                        : detail.advance_required
+                        ? formatInr(detail.requested_amount)
+                        : 'No Advance'
+                    }
                   />
                 </div>
                 <div className="form-group" style={{ marginBottom: '12px' }}>
@@ -1990,7 +2098,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                   disabled={isWorking}
                   onClick={() => handleDecision('REJECTED')}
                 >
-                  <XCircle size={14} /> Reject Request
+                  <XCircle size={14} /> Reject
                 </button>
                 <button
                   type="button"
@@ -2006,14 +2114,14 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                   disabled={isWorking}
                   onClick={() => handleDecision('APPROVED')}
                 >
-                  <CheckCircle2 size={14} /> Approve Request
+                  <CheckCircle2 size={14} /> {detail.status === 'CLAIM_SUBMITTED' ? 'Approve Claim' : detail.status === 'PENDING_SETTLEMENT_VERIFICATION' ? 'Approve Settlement' : 'Approve Request'}
                 </button>
               </div>
             </div>
           )}
 
-          {/* 2. ACCOUNTS ADVANCE DISTRIBUTION SECTION */}
-          {isAccounts && detail.status === 'APPROVED' && detail.advance_required && (
+          {/* 2. ACCOUNTS PAYMENT / DISTRIBUTION SECTION */}
+          {(isAccounts || isManagement) && (detail.status === 'APPROVED' || detail.status === 'PENDING_REIMBURSEMENT') && (
             <div
               style={{
                 background: '#ECFEFF',
@@ -2024,15 +2132,16 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
               }}
             >
               <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 800, color: '#0E7490' }}>
-                Distribute Approved Advance ({formatInr(detail.approved_amount)})
+                {detail.status === 'PENDING_REIMBURSEMENT'
+                  ? `Disburse Reimbursement Payment (${formatInr(Math.abs(detail.balance || detail.total_spent))})`
+                  : `Distribute Approved Advance (${formatInr(detail.approved_amount)})`}
               </h4>
               <div className="form-row">
                 <div className="form-group" style={{ marginBottom: '12px' }}>
-                  <label>Amount Distributed (₹) *</label>
+                  <label>Amount Disbursed (₹) *</label>
                   <input
                     type="number"
                     min="0.01"
-                    max={detail.approved_amount}
                     className="petty-cash-input"
                     style={{ width: '100%', fontWeight: 700 }}
                     value={distribution.distributedAmount}
@@ -2040,7 +2149,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                   />
                 </div>
                 <div className="form-group" style={{ marginBottom: '12px' }}>
-                  <label>Distribution Date *</label>
+                  <label>Disbursement Date *</label>
                   <input
                     type="date"
                     className="petty-cash-input"
@@ -2101,7 +2210,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                   disabled={isWorking}
                   onClick={handleDistribute}
                 >
-                  <CheckCircle2 size={14} /> Confirm Advance Distribution
+                  <CheckCircle2 size={14} /> {detail.status === 'PENDING_REIMBURSEMENT' ? 'Confirm Reimbursement Payment' : 'Confirm Advance Distribution'}
                 </button>
               </div>
             </div>
@@ -2207,10 +2316,14 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                     onChange={(e) => setExpense({ ...expense, category: e.target.value })}
                   >
                     <option value="TRAVEL">Travel</option>
-                    <option value="FOOD">Food</option>
-                    <option value="ROOM">Room / Lodging</option>
                     <option value="BUS">Bus</option>
+                    <option value="TRAIN">Train</option>
+                    <option value="TAXI_AUTO">Taxi / Auto</option>
                     <option value="FUEL">Fuel</option>
+                    <option value="FOOD">Food</option>
+                    <option value="ROOM">Room / Accommodation</option>
+                    <option value="PARKING">Parking</option>
+                    <option value="TOLL">Toll</option>
                     <option value="OTHER">Other</option>
                   </select>
                 </div>
@@ -2242,7 +2355,9 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                   />
                 </div>
                 <div className="form-group" style={{ marginBottom: '10px' }}>
-                  <label>Bill / Receipt Proof (Optional)</label>
+                  <label>
+                    Bill / Receipt Proof <span style={{ color: '#EF4444' }}>* (Mandatory)</span>
+                  </label>
                   <input
                     type="file"
                     accept="image/*,.pdf"
@@ -2254,6 +2369,11 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                       )
                     }
                   />
+                  {expense.fileName && (
+                    <div style={{ fontSize: '0.75rem', color: '#0E7490', marginTop: '4px', fontWeight: 600 }}>
+                      ✓ {expense.fileName} (Attached)
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2261,7 +2381,7 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                 <button
                   type="button"
                   className="btn-primary btn-sm"
-                  disabled={isWorking || !expense.amount || !expense.description.trim()}
+                  disabled={isWorking || !expense.amount || !expense.description.trim() || !expense.attachmentPath}
                   onClick={handleAddDailyExpense}
                 >
                   <Plus size={14} /> Add Expense Entry
@@ -2289,21 +2409,22 @@ const FieldAllowanceDetailModal: React.FC<FieldAllowanceDetailModalProps> = ({
                 onClick={handleCompleteVisit}
                 disabled={isWorking}
               >
-                <CheckCircle2 size={14} /> Complete Field Visit
+                <CheckCircle2 size={14} /> {!detail.advance_required ? 'Complete Visit & Submit Claim' : 'Complete Visit & Submit Settlement'}
               </button>
             )}
 
             {!isManagement &&
               !isAccounts &&
-              ['COMPLETED', 'IN_PROGRESS', 'AMOUNT_DISTRIBUTED'].includes(detail.status) &&
-              detail.balance > 0 && (
+              ['PENDING_RETURN', 'COMPLETED', 'IN_PROGRESS', 'AMOUNT_DISTRIBUTED'].includes(detail.status) &&
+              detail.balance > 0 &&
+              detail.balance_return_status !== 'SUBMITTED_TO_ACCOUNTS' && (
                 <button
                   type="button"
                   className="btn-primary btn-sm"
                   onClick={handleSubmitBalance}
                   disabled={isWorking}
                 >
-                  <Send size={14} /> Submit Balance to Accounts ({formatInr(detail.balance)})
+                  <Send size={14} /> Submit Return to Accounts ({formatInr(detail.balance)})
                 </button>
               )}
 

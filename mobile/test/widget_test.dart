@@ -1,62 +1,100 @@
+import 'package:businz_hrms_mobile/core/models/app_user.dart';
+import 'package:businz_hrms_mobile/core/models/permission_matrix.dart';
+import 'package:businz_hrms_mobile/features/auth/application/auth_controller.dart';
+import 'package:businz_hrms_mobile/features/auth/data/auth_repository.dart';
+import 'package:businz_hrms_mobile/features/auth/presentation/login_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vrm_hrms_mobile/main.dart';
-import 'package:vrm_hrms_mobile/services/api_client.dart';
 
-class FakeApiClient extends ApiClient {
-  Map<String, dynamic>? lastPayload;
+class FakeAuthRepository implements AuthRepository {
+  @override
+  Future<AppUser?> restore() async => null;
 
   @override
-  Future<Map<String, dynamic>> post(
-    String path,
-    Map<String, dynamic> payload,
-  ) async {
-    lastPayload = payload;
-    return {'success': true};
-  }
+  Future<AppUser> login(String identifier, String password) async =>
+      const AppUser(
+        id: '1',
+        employeeId: 'EMP-001',
+        name: 'Test Employee',
+        email: 'employee@example.com',
+        role: 'Employee',
+      );
+
+  @override
+  Future<Map<String, dynamic>> otpConfig() async => {
+        'emailOtpEnabled': true,
+        'mobileOtpEnabled': false,
+      };
+
+  @override
+  Future<({int expiresInSeconds, int resendCooldownSeconds})> requestEmailOtp(
+          String email) async =>
+      (expiresInSeconds: 300, resendCooldownSeconds: 30);
+
+  @override
+  Future<AppUser> verifyEmailOtp(String email, String otp) async =>
+      const AppUser(
+        id: '1',
+        employeeId: 'EMP-001',
+        name: 'Test Employee',
+        email: 'employee@example.com',
+        role: 'Employee',
+      );
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> requestPasswordReset(String identifier) async {}
+
+  @override
+  Future<String> verifyResetOtp(String identifier, String otp) async =>
+      'reset-token';
+
+  @override
+  Future<void> resetPassword(String resetToken, String password) async {}
 }
 
 void main() {
-  testWidgets('login validates empty credentials', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(home: LoginPage(api: FakeApiClient(), onLogin: (_) {})),
-    );
-
-    await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
-    await tester.pump();
-
-    expect(find.text('Enter your user ID and password.'), findsOneWidget);
+  test('employee fallback does not grant administrative modules', () {
+    final matrix = PermissionMatrix.fallback('Employee');
+    expect(matrix.can('attendance'), isTrue);
+    expect(matrix.can('leave', 'create'), isTrue);
+    expect(matrix.can('employees'), isFalse);
+    expect(matrix.can('payroll', 'edit'), isFalse);
   });
 
-  testWidgets('quick actions navigate and check-in sends typed payload', (
-    tester,
-  ) async {
-    final api = FakeApiClient();
+  test('CEO account is excluded from attendance punching', () {
+    const user = AppUser(
+      id: 'ceo',
+      employeeId: 'CEO-001',
+      name: 'CEO',
+      email: 'ceo@example.com',
+      role: 'CEO',
+    );
+    expect(user.canPunchAttendance, isFalse);
+  });
+
+  testWidgets('login validates both required credentials', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: HomePage(
-          api: api,
-          user: const {
-            'id': 'EMP-001',
-            'name': 'Test Employee',
-            'role': 'Employee',
-          },
-          onLogout: () async {},
-        ),
+      ProviderScope(
+        overrides: [
+          authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+        ],
+        child: const MaterialApp(home: LoginScreen()),
       ),
     );
-
-    await tester.tap(find.widgetWithText(ActionChip, 'Clock in'));
     await tester.pumpAndSettle();
-    expect(find.text('Attendance'), findsWidgets);
-
-    await tester.tap(find.widgetWithText(FilledButton, 'Check in'));
-    await tester.pumpAndSettle();
-
-    expect(api.lastPayload?['employeeId'], isA<String>());
-    expect(api.lastPayload?['employeeId'], 'EMP-001');
-    expect(api.lastPayload?['type'], 'IN');
-    expect(api.lastPayload?['method'], 'MOBILE');
-    expect(api.lastPayload?['timestamp'], isA<String>());
+    await tester.tap(find.text('Sign In'));
+    await tester.pump();
+    expect(find.text('Enter your employee ID or email.'), findsOneWidget);
+    expect(find.text('Enter your password.'), findsOneWidget);
   });
 }

@@ -340,6 +340,6 @@ describe('VRM Enterprise HRMS — Full API Integration Test Suite', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error.code).toBe('FORBIDDEN');
+    expect(body.error.code).toBe('HRMS_FORBIDDEN');
   });
 });

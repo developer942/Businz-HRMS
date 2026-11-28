@@ -61,3 +61,5 @@ test-results/
 scratch/
 frontend/audit_screenshots/
 audit_screenshots/
+releases/
+backend/tests/results-*.json

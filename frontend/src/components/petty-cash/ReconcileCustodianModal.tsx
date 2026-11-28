@@ -31,12 +31,15 @@ export const ReconcileCustodianModal: React.FC<ReconcileCustodianModalProps> = (
   const countedCash = physicalCashCount === '' ? 0 : Number(physicalCashCount);
   const discrepancy = countedCash - currentBalance;
 
-  // Active employees excluding current custodian and current CEO
+  // Active employees excluding current custodian and CEO
   const eligibleEmployees = employees.filter(
     (e) =>
       (e.status === 'Active' || !e.status) &&
       e.id !== activeAccount.custodian_id &&
-      e.employeeId !== activeAccount.custodian_employee_id
+      e.employeeId !== activeAccount.custodian_employee_id &&
+      e.id !== currentUser.id &&
+      e.employeeId !== currentUser.employeeId &&
+      String(e.role || '').toUpperCase() !== 'CEO'
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,8 +54,8 @@ export const ReconcileCustodianModal: React.FC<ReconcileCustodianModalProps> = (
       return;
     }
 
-    if (!notes.trim()) {
-      setError('Reconciliation notes and handover justification are required for audit compliance.');
+    if (!notes.trim() || notes.trim().length < 3) {
+      setError('Reconciliation notes and handover justification (min 3 characters) are required for audit compliance.');
       return;
     }
 
@@ -67,15 +70,21 @@ export const ReconcileCustodianModal: React.FC<ReconcileCustodianModalProps> = (
       setError(null);
 
       const updatedAccount = await pettyCashService.reconcileAndTransferCustodian({
+        previousAccountId: activeAccount.id,
         newEmployeeId: newEmp.id,
         newEmployeeName: `${newEmp.firstName} ${newEmp.lastName}`.trim() || 'New Custodian',
         newEmployeeCode: newEmp.employeeId || newEmp.id,
         physicalCashCount: countedCash,
+        physicalCashCounted: countedCash,
         reconciliationNotes: notes.trim(),
+        transferRemainingBalance: true,
         witnessCeoOrAccountsId: currentUser.id,
       });
 
       onReconciled(updatedAccount);
+      setNewEmpId('');
+      setPhysicalCashCount('');
+      setNotes('');
       onClose();
     } catch (err: any) {
       setError(err.message || 'Custodian handover failed.');

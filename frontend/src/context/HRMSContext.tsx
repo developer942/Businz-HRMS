@@ -289,7 +289,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     advance_salary: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     petty_cash: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     field_allowance: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
-    accounts_payment: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    accounts_payment: [],
     reports: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -314,7 +314,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     advance_salary: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     petty_cash: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     field_allowance: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
-    accounts_payment: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
+    accounts_payment: [],
     reports: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -414,7 +414,7 @@ const DEFAULT_PERMISSIONS: PermissionMatrix = {
     advance_salary: ['view', 'create', 'edit', 'export'], // NO approve
     petty_cash: ['view', 'create', 'export'],
     field_allowance: ['view', 'create', 'edit', 'approve', 'export'],
-    accounts_payment: ['view'],
+    accounts_payment: [],
     reports: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     organization: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
     assets: ['view', 'create', 'edit', 'delete', 'approve', 'export'],
@@ -883,6 +883,8 @@ interface HRMSContextType {
     otHours?: number;
     reason: string;
     addedBy: string;
+    skipRemoteSync?: boolean;
+    persistedRecordId?: string;
   }) => { success: boolean; message: string };
 
   // Enterprise Attendance & Overtime Module
@@ -2184,6 +2186,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Dynamic punctuality & status resolution:
     // When HR manually changes check-in time, check against the employee's shift start time + grace period!
     let finalStatus = params.status;
+    // If a Missing Punch record now has both valid Check-In and Check-Out times, auto-regularize to Present
+    if (
+      finalStatus === 'Missing Punch' &&
+      effectiveCheckIn &&
+      effectiveCheckIn !== '--:--' &&
+      effectiveCheckOut &&
+      effectiveCheckOut !== '--:--'
+    ) {
+      finalStatus = 'Present';
+    }
     let finalLateStatus: AttendanceRecord['lateStatus'] = 'On Time';
     let finalLateMinutes = 0;
 
@@ -3752,6 +3764,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     otHours?: number;
     reason: string;
     addedBy: string;
+    skipRemoteSync?: boolean;
+    persistedRecordId?: string;
   }): { success: boolean; message: string } => {
     if (!entry.employeeId) {
       return { success: false, message: 'Please select an employee.' };
@@ -3838,6 +3852,16 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
 
     let finalStatus = entry.status;
+    // If both Check-In and Check-Out are provided while status was Missing Punch, regularize to Present
+    if (
+      finalStatus === 'Missing Punch' &&
+      cleanCheckIn &&
+      cleanCheckIn !== '--:--' &&
+      cleanCheckOut &&
+      cleanCheckOut !== '--:--'
+    ) {
+      finalStatus = 'Present';
+    }
     let finalLateStatus: AttendanceRecord['lateStatus'] = 'On Time';
     let finalLateMinutes = 0;
 
@@ -3896,8 +3920,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    let existingRecord: AttendanceRecord | undefined;
-    let persistedAttendanceId: string | undefined;
+    // Synchronously look up existing record before React state updater runs asynchronously
+    const existingRecord = attendanceRecords.find(a =>
+      (a.employeeId === emp.id || a.employeeId === emp.employeeId || a.employeeId === entry.employeeId) &&
+      (a.date === entry.date || a.shiftDate === entry.date)
+    );
+    const persistedAttendanceId = entry.persistedRecordId || existingRecord?.id;
     const reasonLower = (entry.reason || '').toLowerCase();
     const resolvedMethod: AttendanceRecord['method'] =
       finalStatus === 'Holiday' || finalStatus === 'Week Off'
@@ -3909,7 +3937,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             : 'Manual Punch';
 
     const committedRecord: AttendanceRecord = {
-      id: `ATT-${Date.now()}`,
+      id: persistedAttendanceId || `ATT-${Date.now()}`,
       employeeId: canonicalEmployeeId,
       employeeName: fullName,
       department: emp.department,
@@ -3933,6 +3961,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const compKey = `${String(canonicalEmployeeId || '').trim().toLowerCase()}_${entry.date}`;
     recentServerPunchesRef.current.set(compKey, { record: committedRecord, committedAt: Date.now() });
+    if (committedRecord.id && committedRecord.id.length === 36) {
+      recentServerPunchesRef.current.set(committedRecord.id, { record: committedRecord, committedAt: Date.now() });
+    }
 
     setAttendanceRecords(prev => {
       const idx = prev.findIndex(a =>
@@ -3940,12 +3971,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         (a.date === entry.date || a.shiftDate === entry.date)
       );
       if (idx !== -1) {
-        existingRecord = prev[idx];
-        persistedAttendanceId = prev[idx].id;
         const updated: AttendanceRecord = {
           ...prev[idx],
           ...committedRecord,
-          id: prev[idx].id,
+          id: entry.persistedRecordId || prev[idx].id,
           department: emp.department || prev[idx].department,
           approvedOtHours: otHrs > 0 ? otHrs : prev[idx].approvedOtHours,
           otStatus: otHrs > 0 ? 'Approved' : prev[idx].otStatus,
@@ -3970,48 +3999,50 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       cleanCheckOut
     );
 
-    const employeeDbId = emp.id;
-    const checkInIso =
-      (cleanCheckIn && manualSession?.checkInIso) ||
-      (cleanCheckIn ? localDateTimeToIso(entry.date, cleanCheckIn) : null);
-    const checkOutIso =
-      (cleanCheckOut && manualSession?.checkOutIso) ||
-      (cleanCheckOut ? localDateTimeToIso(entry.date, cleanCheckOut) : null);
+    if (!entry.skipRemoteSync) {
+      const employeeDbId = emp.id;
+      const checkInIso =
+        (cleanCheckIn && manualSession?.checkInIso) ||
+        (cleanCheckIn ? localDateTimeToIso(entry.date, cleanCheckIn) : null);
+      const checkOutIso =
+        (cleanCheckOut && manualSession?.checkOutIso) ||
+        (cleanCheckOut ? localDateTimeToIso(entry.date, cleanCheckOut) : null);
 
-    if (persistedAttendanceId && persistedAttendanceId.length === 36) {
-      supabaseDirect.updateAttendanceRecord(persistedAttendanceId, {
-        check_in: checkInIso,
-        check_out: checkOutIso,
-        working_hours: computedHours || 0,
-        calculated_ot_hours: otHrs || 0,
-        status: finalStatus,
-        late_status: finalLateStatus,
-        method: resolvedMethod,
-      });
-    }
-
-    supabaseDirect.upsertAttendanceRecord({
-      employee_id: employeeDbId,
-      date: entry.date,
-      check_in: checkInIso,
-      check_out: checkOutIso,
-      working_hours: computedHours || 0,
-      status: finalStatus,
-      late_status: finalLateStatus,
-      method: resolvedMethod,
-      shift_date: entry.date,
-    }).then(res => {
-      if (res.data?.id) {
-        const persistedRec = { ...committedRecord, id: res.data.id };
-        recentServerPunchesRef.current.set(res.data.id, { record: persistedRec, committedAt: Date.now() });
-        recentServerPunchesRef.current.set(compKey, { record: persistedRec, committedAt: Date.now() });
-        setAttendanceRecords(curr => curr.map(r =>
-          (r.employeeId === canonicalEmployeeId || r.employeeId === emp.id || r.employeeId === entry.employeeId) && (r.date === entry.date || r.shiftDate === entry.date)
-            ? { ...r, id: res.data.id }
-            : r
-        ));
+      if (persistedAttendanceId && persistedAttendanceId.length === 36) {
+        supabaseDirect.updateAttendanceRecord(persistedAttendanceId, {
+          check_in: checkInIso,
+          check_out: checkOutIso,
+          working_hours: computedHours || 0,
+          calculated_ot_hours: otHrs || 0,
+          status: finalStatus,
+          late_status: finalLateStatus,
+          method: resolvedMethod,
+        });
+      } else {
+        supabaseDirect.upsertAttendanceRecord({
+          employee_id: employeeDbId,
+          date: entry.date,
+          check_in: checkInIso,
+          check_out: checkOutIso,
+          working_hours: computedHours || 0,
+          status: finalStatus,
+          late_status: finalLateStatus,
+          method: resolvedMethod,
+          shift_date: entry.date,
+        }).then(res => {
+          if (res.data?.id) {
+            const persistedRec = { ...committedRecord, id: res.data.id };
+            recentServerPunchesRef.current.set(res.data.id, { record: persistedRec, committedAt: Date.now() });
+            recentServerPunchesRef.current.set(compKey, { record: persistedRec, committedAt: Date.now() });
+            setAttendanceRecords(curr => curr.map(r =>
+              (r.employeeId === canonicalEmployeeId || r.employeeId === emp.id || r.employeeId === entry.employeeId) && (r.date === entry.date || r.shiftDate === entry.date)
+                ? { ...r, id: res.data.id }
+                : r
+            ));
+          }
+        });
       }
-    });
+    }
 
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -4966,6 +4997,46 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const [loanRecords, setLoanRecords] = useState<LoanRecord[]>([]);
+  const lastLoanRecordMutationAtRef = React.useRef<number>(0);
+
+  // Safe fetch-merge-save for company_settings.loan_records_data so concurrent
+  // submissions from Web tabs or Mobile never overwrite each other.
+  const persistMergedLoanRecords = async (
+    upsertedRecords: LoanRecord[],
+    fallbackList: LoanRecord[]
+  ): Promise<boolean> => {
+    lastLoanRecordMutationAtRef.current = Date.now();
+    try {
+      const latestRemote = await supabaseDirect
+        .getCompanySetting('loan_records_data')
+        .catch(() => null);
+      const baseList: LoanRecord[] = Array.isArray(latestRemote)
+        ? latestRemote
+        : fallbackList;
+      const byId = new Map<string, LoanRecord>();
+      for (const rec of baseList) {
+        if (rec && rec.id) byId.set(String(rec.id), rec);
+      }
+      for (const rec of upsertedRecords) {
+        if (rec && rec.id) byId.set(String(rec.id), rec);
+      }
+      const merged = [
+        ...upsertedRecords.filter(r => r && r.id),
+        ...Array.from(byId.values()).filter(
+          r => !upsertedRecords.some(u => u && u.id === r.id)
+        ),
+      ];
+      setLoanRecords(merged);
+      const ok = await supabaseDirect.saveCompanySetting('loan_records_data', merged);
+      if (!ok) {
+        console.error('[HRMSContext] Failed to persist loan_records_data to database.');
+      }
+      return ok;
+    } catch (err) {
+      console.error('[HRMSContext] Error persisting loan_records_data:', err);
+      return false;
+    }
+  };
 
   // Discrete loan actions (submit, review, disburse, manual repayment) persist directly to VPS database
 
@@ -5244,7 +5315,8 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const timestamp = `${dateStr} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const loanId = `ADV-${now.getFullYear()}-${String(loanRecords.length + 1).padStart(3, '0')}`;
+    const uniqueSuffix = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 5)}`.toUpperCase();
+    const loanId = `ADV-${now.getFullYear()}-${uniqueSuffix}`;
     const isFullOnly = policy?.repaymentType === 'FULL';
     const maxPolicyMonths = Math.max(1, toNum(policy?.maxRepaymentMonths) || 6);
     const months = isFullOnly ? 1 : Math.min(Math.max(1, toNum(requestData.installmentMonths) || 1), maxPolicyMonths);
@@ -5287,9 +5359,10 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ]
     };
 
+    lastLoanRecordMutationAtRef.current = Date.now();
     setLoanRecords(prev => {
-      const updated = [newRecord, ...prev];
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
+      const updated = [newRecord, ...prev.filter(r => r.id !== newRecord.id)];
+      void persistMergedLoanRecords([newRecord], updated);
       return updated;
     });
     const applicantEmp = employees.find(e => e.employeeId === requestData.employeeId || e.id === requestData.employeeId);
@@ -5375,9 +5448,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const approverRoleLabel = isCEOApprover ? 'CEO' : 'HR';
     const approverName = `${currentUser.name} (${approverRoleLabel})`;
 
+    lastLoanRecordMutationAtRef.current = Date.now();
     setLoanRecords(prev => {
+      let modifiedRec: LoanRecord | null = null;
       const updated = prev.map(rec => {
         if (rec.id !== id) return rec;
+        const existingLogs = Array.isArray(rec.auditLogs) ? rec.auditLogs : [];
 
         if (options.action === 'Approve') {
           const approvedAmt = options.approvedAmount ?? rec.requestedAmount;
@@ -5425,7 +5501,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               status: 'Approved'
             },
             auditLogs: [
-              ...rec.auditLogs,
+              ...existingLogs,
               {
                 id: `LOG-${Date.now()}`,
                 loanId: rec.id,
@@ -5457,6 +5533,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             targetEmployeeIds: [rec.employeeId]
           });
 
+          modifiedRec = updatedRec;
           return updatedRec;
         } else {
           const rejectionReason = options.rejectionReason || 'Request does not meet current organizational loan criteria.';
@@ -5472,13 +5549,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               status: 'Rejected'
             },
             auditLogs: [
-              ...rec.auditLogs,
+              ...existingLogs,
               {
                 id: `LOG-${Date.now()}`,
                 loanId: rec.id,
-                action: 'Request Rejected by CEO',
+                action: `Request Rejected by ${approverRoleLabel}`,
                 performedBy: approverName,
-                performedByRole: 'CEO',
+                performedByRole: currentUser.role,
                 timestamp,
                 previousValue: `Status: ${rec.status}`,
                 newValue: `Status: Rejected. Reason: ${rejectionReason}`
@@ -5489,16 +5566,19 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // Notify requesting employee with authorized rejection reason
           addNotification({
             title: 'Advance Salary Rejected',
-            message: `Your advance salary request was rejected by CEO. Reason: ${rejectionReason}`,
+            message: `Your advance salary request was rejected by ${approverRoleLabel}. Reason: ${rejectionReason}`,
             priority: 'Important',
             category: 'Payroll',
             targetEmployeeIds: [rec.employeeId]
           });
 
+          modifiedRec = updatedRec;
           return updatedRec;
         }
       });
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
+      if (modifiedRec) {
+        void persistMergedLoanRecords([modifiedRec], updated);
+      }
       return updated;
     });
   };
@@ -5513,11 +5593,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }) => {
     const officer = `${currentUser.name} (${currentUser.role})`;
 
+    lastLoanRecordMutationAtRef.current = Date.now();
     setLoanRecords(prev => {
       let disbursedEmpName = '';
       let disbursedEmpId = '';
+      let modifiedRec: LoanRecord | null = null;
       const updated = prev.map(rec => {
         if (rec.id !== id) return rec;
+        const existingLogs = Array.isArray(rec.auditLogs) ? rec.auditLogs : [];
 
         disbursedEmpName = rec.employeeName;
         disbursedEmpId = rec.employeeId;
@@ -5539,7 +5622,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           };
         });
 
-        return {
+        const nextRec: LoanRecord = {
           ...rec,
           status: 'Active' as const,
           disbursedAmount: amt,
@@ -5554,7 +5637,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           },
           repaymentSchedule: schedule,
           auditLogs: [
-            ...rec.auditLogs,
+            ...existingLogs,
             {
               id: `LOG-${Date.now()}`,
               loanId: rec.id,
@@ -5567,8 +5650,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           ]
         };
+        modifiedRec = nextRec;
+        return nextRec;
       });
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
+      if (modifiedRec) {
+        void persistMergedLoanRecords([modifiedRec], updated);
+      }
 
       if (disbursedEmpId) {
         // Notify employee
@@ -5602,9 +5689,13 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }) => {
     const recorder = `${currentUser.name} (${currentUser.role})`;
 
+    lastLoanRecordMutationAtRef.current = Date.now();
     setLoanRecords(prev => {
+      let modifiedRec: LoanRecord | null = null;
       const updated = prev.map(rec => {
         if (rec.id !== id) return rec;
+        const existingSchedule = Array.isArray(rec.repaymentSchedule) ? rec.repaymentSchedule : [];
+        const existingLogs = Array.isArray(rec.auditLogs) ? rec.auditLogs : [];
 
         const newBalance = Math.max(0, toNum(rec.outstandingBalance) - repayment.amount);
         const isClosed = newBalance === 0;
@@ -5620,7 +5711,7 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           notes: repayment.notes
         };
 
-        const updatedSchedule = rec.repaymentSchedule.map(inst => {
+        const updatedSchedule = existingSchedule.map(inst => {
           if (inst.status === 'Pending' && inst.actualDeducted < inst.scheduledAmount) {
             return {
               ...inst,
@@ -5632,14 +5723,14 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return inst;
         });
 
-        return {
+        const nextRec: LoanRecord = {
           ...rec,
           outstandingBalance: newBalance,
           status: isClosed ? 'Closed' as const : rec.status,
           manualRepayments: [...(rec.manualRepayments || []), manualEntry],
           repaymentSchedule: updatedSchedule,
           auditLogs: [
-            ...rec.auditLogs,
+            ...existingLogs,
             {
               id: `LOG-${Date.now()}`,
               loanId: rec.id,
@@ -5652,8 +5743,12 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             }
           ]
         };
+        modifiedRec = nextRec;
+        return nextRec;
       });
-      supabaseDirect.saveCompanySetting('loan_records_data', updated).catch(() => { });
+      if (modifiedRec) {
+        void persistMergedLoanRecords([modifiedRec], updated);
+      }
       return updated;
     });
   };
@@ -7324,9 +7419,9 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
-    // Accounts Financial Payment Dashboard: CEO & Accounts
+    // Accounts Financial Payment Dashboard: strictly Accounts staff only (removed from CEO)
     if (module === 'accounts_payment') {
-      if (isCeoAuthority || isFinanceStaff) {
+      if (isFinanceStaff && !isCeoAuthority) {
         return action === 'view' || action === 'create' || action === 'export';
       }
       return false;
@@ -11321,55 +11416,66 @@ export const HRMSProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Update active loans with payroll EMI deductions
     const batchPeriod = `${currentMonthInfo.monthShort} ${batchYear}`;
     const batchId = `PAY-${batchYear}-${batchMonthPad}`;
-    setLoanRecords(prev => prev.map(loan => {
-      if ((loan.status === 'Active' || loan.status === 'Disbursed') && toNum(loan.outstandingBalance) > 0) {
-        // Unique Deduplication Check: Ensure not already deducted in this batch for this period
-        const alreadyDeducted = loan.repaymentSchedule.some(s => s.payrollBatchId === batchId && s.status === 'Deducted');
-        if (alreadyDeducted) return loan;
+    const modifiedLoans: LoanRecord[] = [];
+    setLoanRecords(prev => {
+      const next = prev.map(loan => {
+        if ((loan.status === 'Active' || loan.status === 'Disbursed') && toNum(loan.outstandingBalance) > 0) {
+          const schedule = Array.isArray(loan.repaymentSchedule) ? loan.repaymentSchedule : [];
+          const existingLogs = Array.isArray(loan.auditLogs) ? loan.auditLogs : [];
+          // Unique Deduplication Check: Ensure not already deducted in this batch for this period
+          const alreadyDeducted = schedule.some(s => s.payrollBatchId === batchId && s.status === 'Deducted');
+          if (alreadyDeducted) return loan;
 
-        // Find next pending installment
-        const nextInstIdx = loan.repaymentSchedule.findIndex(s => s.status === 'Pending');
-        if (nextInstIdx !== -1) {
-          const inst = loan.repaymentSchedule[nextInstIdx];
-          const scheduledEmi = toNum(inst.scheduledAmount || loan.monthlyDeduction);
-          const currentBal = toNum(loan.outstandingBalance);
-          const actualDeduct = Math.min(scheduledEmi, currentBal);
-          const newBal = Math.max(0, currentBal - actualDeduct);
-          const isClosed = newBal === 0;
+          // Find next pending installment
+          const nextInstIdx = schedule.findIndex(s => s.status === 'Pending');
+          if (nextInstIdx !== -1) {
+            const inst = schedule[nextInstIdx];
+            const scheduledEmi = toNum(inst.scheduledAmount || loan.monthlyDeduction);
+            const currentBal = toNum(loan.outstandingBalance);
+            const actualDeduct = Math.min(scheduledEmi, currentBal);
+            const newBal = Math.max(0, currentBal - actualDeduct);
+            const isClosed = newBal === 0;
 
-          const updatedSchedule = [...loan.repaymentSchedule];
-          updatedSchedule[nextInstIdx] = {
-            ...inst,
-            actualDeducted: actualDeduct,
-            remainingBalance: newBal,
-            status: 'Deducted',
-            deductedAt: '2026-08-31 06:00 PM',
-            payrollBatchId: batchId
-          };
+            const updatedSchedule = [...schedule];
+            updatedSchedule[nextInstIdx] = {
+              ...inst,
+              actualDeducted: actualDeduct,
+              remainingBalance: newBal,
+              status: 'Deducted',
+              deductedAt: new Date().toISOString().slice(0, 16).replace('T', ' '),
+              payrollBatchId: batchId
+            };
 
-          return {
-            ...loan,
-            outstandingBalance: newBal,
-            status: isClosed ? ('Closed' as LoanRequestStatus) : loan.status,
-            repaymentSchedule: updatedSchedule,
-            auditLogs: [
-              ...loan.auditLogs,
-              {
-                id: `LOG-${Date.now()}-${loan.id}`,
-                loanId: loan.id,
-                action: isClosed ? 'Loan Closed (Payroll Repaid)' : 'Payroll Salary Deduction',
-                performedBy: 'Payroll Engine',
-                performedByRole: 'System',
-                timestamp: '2026-08-31 06:00 PM',
-                previousValue: `Outstanding: ${formatCurrency(currentBal)}`,
-                newValue: `Outstanding: ${formatCurrency(newBal)} (Deducted ${formatCurrency(actualDeduct)} in August Batch)`
-              }
-            ]
-          };
+            const updatedLoan: LoanRecord = {
+              ...loan,
+              outstandingBalance: newBal,
+              status: isClosed ? ('Closed' as LoanRequestStatus) : loan.status,
+              repaymentSchedule: updatedSchedule,
+              auditLogs: [
+                ...existingLogs,
+                {
+                  id: `LOG-${Date.now()}-${loan.id}`,
+                  loanId: loan.id,
+                  action: isClosed ? 'Loan Closed (Payroll Repaid)' : 'Payroll Salary Deduction',
+                  performedBy: 'Payroll Engine',
+                  performedByRole: 'System',
+                  timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
+                  previousValue: `Outstanding: ${formatCurrency(currentBal)}`,
+                  newValue: `Outstanding: ${formatCurrency(newBal)} (Deducted ${formatCurrency(actualDeduct)} in ${batchPeriod} Batch)`
+                }
+              ]
+            };
+            modifiedLoans.push(updatedLoan);
+            return updatedLoan;
+          }
         }
+        return loan;
+      });
+      if (modifiedLoans.length > 0) {
+        void persistMergedLoanRecords(modifiedLoans, next);
       }
-      return loan;
-    }));
+      return next;
+    });
 
     setPayrollRecords(prev => {
       const otherMonths = prev.filter(
@@ -13797,36 +13903,52 @@ const syncAllModulesFromDatabase = async (isInitial = false) => {
         }
       }
 
-      if (Array.isArray(settings.loan_records_data)) {
-        const activeEmpMap = new Map<string, any>();
+      if (
+        Date.now() - lastLoanRecordMutationAtRef.current >= 12000 &&
+        hasSetting('loan_records_data') &&
+        Array.isArray(settings.loan_records_data)
+      ) {
+        // Normalize records safely without EVER auto-deleting or overwriting DB records
+        // during background sync (prevents transient empty employee fetches or name formatting
+        // differences from wiping submitted advance salary requests).
+        const empLookup = new Map<string, any>();
         if (Array.isArray(rawEmployees)) {
           rawEmployees.forEach((e: any) => {
-            if (e.id) activeEmpMap.set(String(e.id).toLowerCase(), e);
-            if (e.employee_id) activeEmpMap.set(String(e.employee_id).toLowerCase(), e);
+            if (e.id) empLookup.set(String(e.id).trim().toLowerCase(), e);
+            if (e.employee_id) empLookup.set(String(e.employee_id).trim().toLowerCase(), e);
           });
         }
-        const validLoans = settings.loan_records_data.filter((r: LoanRecord) => {
-          if (!r || !r.employeeId) return false;
-          const emp = activeEmpMap.get(String(r.employeeId).toLowerCase());
-          if (!emp) return false;
-          if (r.employeeName && emp.first_name) {
-            const rName = r.employeeName.trim().toLowerCase();
-            const empFullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim().toLowerCase();
-            const empFirstName = (emp.first_name || '').trim().toLowerCase();
-            if (!empFullName.includes(rName) && !rName.includes(empFirstName)) {
-              return false;
-            }
-          }
-          return true;
-        });
-        if (hasSliceChanged('loan_records', validLoans)) {
-          setLoanRecords(validLoans);
-          if (validLoans.length !== settings.loan_records_data.length) {
-            supabaseDirect.saveCompanySetting('loan_records_data', validLoans).catch(() => { });
-          }
+        const normalizedLoans: LoanRecord[] = settings.loan_records_data
+          .filter((r: any) => r && typeof r === 'object' && (r.id || r.employeeId || r.employee_id))
+          .map((r: any) => {
+            const rawEmpId = String(r.employeeId || r.employee_id || '').trim();
+            const emp = empLookup.get(rawEmpId.toLowerCase());
+            const canonicalEmpId = emp?.employee_id || rawEmpId;
+            const canonicalEmpName =
+              r.employeeName ||
+              (emp ? `${emp.first_name || ''} ${emp.last_name || ''}`.trim() : '') ||
+              canonicalEmpId;
+            return {
+              ...r,
+              id: String(r.id || `ADV-${Date.now()}`),
+              employeeId: canonicalEmpId,
+              employeeName: canonicalEmpName,
+              department: r.department || emp?.departments?.name || 'General',
+              designation: r.designation || emp?.designation || 'Staff',
+              requestType: r.requestType || 'Advance Salary',
+              requestedAmount: toNum(r.requestedAmount),
+              installmentMonths: Math.max(1, toNum(r.installmentMonths) || 1),
+              monthlyDeduction: toNum(r.monthlyDeduction) || Math.round(toNum(r.requestedAmount) / Math.max(1, toNum(r.installmentMonths) || 1)),
+              outstandingBalance: r.outstandingBalance !== undefined ? toNum(r.outstandingBalance) : toNum(r.approvedAmount ?? r.requestedAmount),
+              requestedDate: r.requestedDate || new Date().toISOString().slice(0, 10),
+              status: r.status || 'Pending',
+              repaymentSchedule: Array.isArray(r.repaymentSchedule) ? r.repaymentSchedule : [],
+              auditLogs: Array.isArray(r.auditLogs) ? r.auditLogs : [],
+            } as LoanRecord;
+          });
+        if (hasSliceChanged('loan_records', normalizedLoans)) {
+          setLoanRecords(normalizedLoans);
         }
-      } else if (hasSliceChanged('loan_records', [])) {
-        setLoanRecords([]);
       }
 
       if (hasSetting('geofence_config') && settings.geofence_config && typeof settings.geofence_config === 'object') {

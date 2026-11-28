@@ -6,6 +6,44 @@
  */
 import { crmRepository } from '../../repositories/crmRepository.js';
 import { metaApiClient } from './metaApiClient.js';
+const DEFAULT_PUBLIC_BANNER_URL = 'https://hrms.businz.com/vrm-banner.png';
+const DEFAULT_PUBLIC_DOCUMENT_URL = 'https://hrms.businz.com/VRM_Product_Catalogue.pdf';
+/**
+ * Meta WhatsApp CDN sample URLs (scontent.whatsapp.net / fbcdn.net / lookaside.fbsbx.com)
+ * return HTTP 403 Forbidden when passed back to Meta Cloud API as a template media link
+ * (Meta error 131053). Always reject them in favor of a stable public HTTPS URL.
+ */
+export function isForbiddenMetaCdnUrl(url) {
+    const clean = String(url || '').trim();
+    if (!clean)
+        return true;
+    if (!/^https?:\/\//i.test(clean))
+        return true;
+    const lower = clean.toLowerCase();
+    return (lower.includes('scontent.whatsapp.net') ||
+        lower.includes('scontent.') ||
+        lower.includes('fbcdn.net') ||
+        lower.includes('lookaside.fbsbx.com') ||
+        lower.includes('brand-logo.png'));
+}
+export function resolveSafeTemplateHeaderUrl(params) {
+    const type = String(params.templateHeaderType || 'NONE').toUpperCase();
+    const candidates = [
+        params.requestedUrl,
+        params.templateHeaderContent,
+        Array.isArray(params.templateHeaderExample) ? params.templateHeaderExample[0] : null,
+    ];
+    for (const candidate of candidates) {
+        if (candidate && !isForbiddenMetaCdnUrl(candidate)) {
+            return String(candidate).trim();
+        }
+    }
+    if (type === 'IMAGE')
+        return DEFAULT_PUBLIC_BANNER_URL;
+    if (type === 'DOCUMENT')
+        return DEFAULT_PUBLIC_DOCUMENT_URL;
+    return null;
+}
 export class CrmMessageSender {
     /**
      * Send a direct agent message in a conversation thread
@@ -73,26 +111,40 @@ export class CrmMessageSender {
                 if (Array.isArray(matchedTmpl.buttons) && matchedTmpl.buttons.length > 0) {
                     templateButtons = matchedTmpl.buttons;
                 }
-                // Determine header URL
-                if (templateHeaderType === 'IMAGE') {
-                    const content = matchedTmpl.headerContent;
-                    finalHeaderUrl = headerUrl
-                        || (content && !content.includes('brand-logo.png') ? content : null)
-                        || (matchedTmpl.headerExample && matchedTmpl.headerExample[0] && !matchedTmpl.headerExample[0].startsWith('https://scontent.') ? matchedTmpl.headerExample[0] : null)
-                        || 'https://hrms.businz.com/vrm-banner.png';
+                // Determine safe public header URL (never forward Meta CDN scontent URLs -> 403 Forbidden)
+                if (['IMAGE', 'DOCUMENT', 'VIDEO'].includes(templateHeaderType)) {
+                    finalHeaderUrl = resolveSafeTemplateHeaderUrl({
+                        requestedUrl: headerUrl,
+                        templateHeaderType,
+                        templateHeaderContent: matchedTmpl.headerContent,
+                        templateHeaderExample: matchedTmpl.headerExample,
+                    });
                 }
-                else if (templateHeaderType === 'DOCUMENT') {
-                    finalHeaderUrl = headerUrl
-                        || matchedTmpl.headerContent
-                        || (matchedTmpl.headerExample && matchedTmpl.headerExample[0])
-                        || 'https://hrms.businz.com/VRM_Product_Catalogue.pdf';
-                }
-                else if (templateHeaderType === 'VIDEO') {
-                    finalHeaderUrl = headerUrl
-                        || matchedTmpl.headerContent
-                        || (matchedTmpl.headerExample && matchedTmpl.headerExample[0])
-                        || null;
-                }
+                // Sanitize any caller-supplied header component that carries a forbidden Meta CDN URL
+                finalComponents = finalComponents.map((comp) => {
+                    if (String(comp?.type || '').toLowerCase() !== 'header' || !Array.isArray(comp?.parameters)) {
+                        return comp;
+                    }
+                    const sanitizedParams = comp.parameters.map((param) => {
+                        if (!param || typeof param !== 'object')
+                            return param;
+                        const mediaKey = param.image ? 'image' : param.video ? 'video' : param.document ? 'document' : null;
+                        if (mediaKey && param[mediaKey]?.link !== undefined) {
+                            const incomingLink = String(param[mediaKey].link || '').trim();
+                            if (isForbiddenMetaCdnUrl(incomingLink) && finalHeaderUrl) {
+                                return {
+                                    ...param,
+                                    [mediaKey]: {
+                                        ...param[mediaKey],
+                                        link: finalHeaderUrl,
+                                    },
+                                };
+                            }
+                        }
+                        return param;
+                    });
+                    return { ...comp, parameters: sanitizedParams };
+                });
                 // 1. Ensure Header Component is present if template requires an IMAGE, DOCUMENT, VIDEO or TEXT header
                 const hasHeaderComp = finalComponents.some((c) => String(c?.type || '').toLowerCase() === 'header');
                 if (!hasHeaderComp && templateHeaderType && templateHeaderType !== 'NONE') {

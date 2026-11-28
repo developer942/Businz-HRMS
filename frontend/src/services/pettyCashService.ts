@@ -84,10 +84,21 @@ export const pettyCashService = {
   },
 
   async reconcileAndTransferCustodian(payload: ReconcileCustodianPayload): Promise<PettyCashAccount> {
-    return request<PettyCashAccount>('/custodian/reconcile', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const physicalCash = Number(payload.physicalCashCounted ?? payload.physicalCashCount ?? 0);
+    const body = {
+      ...payload,
+      physicalCashCount: physicalCash,
+      physicalCashCounted: physicalCash,
+      transferRemainingBalance: payload.transferRemainingBalance ?? true,
+    };
+    const result = await request<PettyCashAccount | { previousAccount: PettyCashAccount; newAccount: PettyCashAccount }>(
+      '/custodian/reassign',
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }
+    );
+    return ((result as any)?.newAccount ?? result) as PettyCashAccount;
   },
 
   // 2. Fund Requests

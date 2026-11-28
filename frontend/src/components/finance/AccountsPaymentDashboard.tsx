@@ -464,6 +464,28 @@ export const AccountsPaymentDashboard: React.FC = () => {
           rawRecord: request,
         });
       }
+
+      // 4c. Direct Employee Reimbursement (Workflow A or Workflow B approved claims in PENDING_REIMBURSEMENT)
+      if (request.status === 'PENDING_REIMBURSEMENT') {
+        const reimbursementAmount = Math.abs(Number(request.balance !== undefined && request.balance !== 0 ? request.balance : request.total_spent || 0));
+        list.push({
+          id: `FA-REIMB-${request.id}`,
+          sourceType: 'FIELD_ALLOWANCE',
+          typeLabel: 'Finance & Claims Reimbursement',
+          requestNumber: `${request.trip_code}-CLM`,
+          employeeName: request.employee_name,
+          employeeId: request.employee_id,
+          department: request.department_name || 'Operations',
+          approvedAmount: reimbursementAmount,
+          requestedAmount: reimbursementAmount,
+          approvedDate: (request.decided_at || request.updated_at || request.created_at).slice(0, 10),
+          approvedBy: resolveApproverLabel(request.decided_by_name, employees),
+          purpose: `${request.purpose} · ${request.destination} (Claim Reimbursement)`,
+          status: 'PENDING_DISBURSEMENT',
+          employeeProofs: tripProofs,
+          rawRecord: request,
+        });
+      }
     });
 
     // 5. Payroll Salaries forwarded to Accounts for disbursement
