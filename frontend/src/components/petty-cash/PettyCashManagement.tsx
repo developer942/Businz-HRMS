@@ -74,6 +74,7 @@ export const PettyCashManagement: React.FC = () => {
   // Active Tab
   const defaultTab = isCEO ? 'CEO_DASHBOARD' : isAccounts ? 'ACCOUNTS_DISBURSEMENTS' : 'CUSTODIAN_DESK';
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  const [hasUserSwitchedTab, setHasUserSwitchedTab] = useState<boolean>(false);
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
 
@@ -122,25 +123,51 @@ export const PettyCashManagement: React.FC = () => {
   }, [loadModuleData]);
 
   // Check if current user is the custodian
-  const isCustodian =
+  const isCustodian = Boolean(
     activeAccount &&
-    (activeAccount.custodian_id === currentUser.id ||
-      activeAccount.custodian_employee_id === currentUser.employeeId ||
-      (activeAccount.custodian_name &&
-        currentUser.name &&
-        activeAccount.custodian_name.toLowerCase() === currentUser.name.toLowerCase()));
+      (activeAccount.custodian_id === currentUser.id ||
+        activeAccount.custodian_employee_id === currentUser.employeeId ||
+        (activeAccount.custodian_employee_id &&
+          currentUser.employeeId &&
+          activeAccount.custodian_employee_id.toLowerCase() === currentUser.employeeId.toLowerCase()) ||
+        (activeAccount.custodian_name &&
+          currentUser.name &&
+          activeAccount.custodian_name.toLowerCase() === currentUser.name.toLowerCase()))
+  );
 
   // Unauthorized guard: If not CEO, not Accounts, and not Custodian
   const isAuthorized = isCEO || isAccounts || isCustodian;
 
+  // When an Accounts/Finance user is ALSO the active Custodian (after handover),
+  // land them on My Custodian Desk by default while still letting them toggle to Accounts Disbursements.
+  useEffect(() => {
+    if (isCustodian && !isCEO && !hasUserSwitchedTab && activeTab !== 'CUSTODIAN_DESK') {
+      setActiveTab('CUSTODIAN_DESK');
+    }
+  }, [isCustodian, isCEO, hasUserSwitchedTab, activeTab]);
+
   // Strict role confinement: automatically keep activeTab within the authorized role scope
   useEffect(() => {
-    if (isCEO && activeTab !== 'CEO_DASHBOARD' && activeTab !== 'LEDGER_REPORTS') {
-      setActiveTab('CEO_DASHBOARD');
-    } else if (isAccounts && !isCEO && activeTab !== 'ACCOUNTS_DISBURSEMENTS' && activeTab !== 'LEDGER_REPORTS') {
-      setActiveTab('ACCOUNTS_DISBURSEMENTS');
-    } else if (isCustodian && !isCEO && !isAccounts && activeTab !== 'CUSTODIAN_DESK' && activeTab !== 'LEDGER_REPORTS') {
+    if (isCEO) {
+      if (activeTab !== 'CEO_DASHBOARD' && activeTab !== 'LEDGER_REPORTS') {
+        setActiveTab('CEO_DASHBOARD');
+      }
+      return;
+    }
+    if (isCustodian && isAccounts) {
+      if (
+        activeTab !== 'CUSTODIAN_DESK' &&
+        activeTab !== 'ACCOUNTS_DISBURSEMENTS' &&
+        activeTab !== 'LEDGER_REPORTS'
+      ) {
+        setActiveTab('CUSTODIAN_DESK');
+      }
+      return;
+    }
+    if (isCustodian && activeTab !== 'CUSTODIAN_DESK' && activeTab !== 'LEDGER_REPORTS') {
       setActiveTab('CUSTODIAN_DESK');
+    } else if (isAccounts && !isCustodian && activeTab !== 'ACCOUNTS_DISBURSEMENTS' && activeTab !== 'LEDGER_REPORTS') {
+      setActiveTab('ACCOUNTS_DISBURSEMENTS');
     }
   }, [isCEO, isAccounts, isCustodian, activeTab]);
 
@@ -261,17 +288,17 @@ export const PettyCashManagement: React.FC = () => {
             allowAll
           />
 
-          {/* Quick Context Action Buttons for Custodian Employee only */}
-          {isCustodian && !isCEO && !isAccounts && (
+          {/* Quick Context Action Buttons for Active Custodian (even if in Accounts/Finance dept) */}
+          {isCustodian && !isCEO && (
             <>
               <button
                 className="btn-secondary"
                 onClick={() => setIsRequestModalOpen(true)}
                 title="Request Petty Cash"
                 aria-label="Request Petty Cash"
-                style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
+                style={{ height: '38px', padding: '0 14px', display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '10px', fontWeight: 700 }}
               >
-                <Send size={16} />
+                <Send size={15} /> Request Funds
               </button>
               <button
                 className="btn-primary"
@@ -279,9 +306,9 @@ export const PettyCashManagement: React.FC = () => {
                 disabled={currentBalance <= 0}
                 title="Add Daily Expense"
                 aria-label="Add Daily Expense"
-                style={{ width: '38px', height: '38px', padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px' }}
+                style={{ height: '38px', padding: '0 14px', display: 'inline-flex', alignItems: 'center', gap: '6px', borderRadius: '10px', fontWeight: 700 }}
               >
-                <Plus size={18} strokeWidth={2.5} />
+                <Plus size={16} strokeWidth={2.5} /> Add Expense
               </button>
             </>
           )}
@@ -307,6 +334,66 @@ export const PettyCashManagement: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Dual-Role Switcher when Accounts/Finance user is also the active Custodian */}
+      {isCustodian && isAccounts && !isCEO && (
+        <div
+          style={{
+            display: 'inline-flex',
+            gap: '6px',
+            padding: '4px',
+            background: '#FFFFFF',
+            border: '1px solid #E7ECF3',
+            borderRadius: '12px',
+            marginBottom: '16px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setHasUserSwitchedTab(true);
+              setActiveTab('CUSTODIAN_DESK');
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              borderRadius: '9px',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              background: activeTab === 'CUSTODIAN_DESK' ? '#0E7490' : 'transparent',
+              color: activeTab === 'CUSTODIAN_DESK' ? '#FFFFFF' : '#475569',
+            }}
+          >
+            <UserCheck size={15} /> My Custodian Desk
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setHasUserSwitchedTab(true);
+              setActiveTab('ACCOUNTS_DISBURSEMENTS');
+            }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              borderRadius: '9px',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              background: activeTab === 'ACCOUNTS_DISBURSEMENTS' ? '#0E7490' : 'transparent',
+              color: activeTab === 'ACCOUNTS_DISBURSEMENTS' ? '#FFFFFF' : '#475569',
+            }}
+          >
+            <CreditCard size={15} /> Accounts Disbursements
+          </button>
+        </div>
+      )}
 
       {/* Main Tab Views */}
       {activeTab === 'CEO_DASHBOARD' && (

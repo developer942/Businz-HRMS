@@ -138,9 +138,11 @@ export const PettyCashCustodianView: React.FC<PettyCashCustodianViewProps> = ({
   const lowThreshold = Number(activeAccount?.low_balance_threshold || 1000);
   const isLowBalance = activeAccount && currentBalance <= lowThreshold;
 
-  // Check for disbursements pending receipt confirmation by this custodian
+  // Check for disbursements pending receipt confirmation by this custodian's active account
   const pendingReceiptDisbursements = disbursements.filter(
-    (d) => d.status === 'PENDING_RECEIPT'
+    (d) =>
+      (d.status === 'PENDING_RECEIPT' || d.status === 'DISBURSED') &&
+      (!activeAccount || d.account_id === activeAccount.id)
   );
 
   const pendingRequestsCount = requests.filter(

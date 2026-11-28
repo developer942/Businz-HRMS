@@ -567,4 +567,53 @@ describe('BUSINZ HRMS - Complete Petty Cash Management Module (End-to-End)', () 
     expect(historyBody.success).toBe(true);
     expect(historyBody.data.length).toBeGreaterThanOrEqual(3);
   });
+
+  it('25. Newly handed-over custodian (including Accounts dept user) can submit Fund Requests and record Daily Expenses', async () => {
+    const arunToken = createToken({
+      id: 'usr-new-cust-003',
+      email: 'arun@businz.com',
+      role: 'Finance',
+      employeeId: 'VRM-013',
+      name: 'Arun Boopathi M',
+    });
+
+    // 1) New custodian records a ₹250 daily expense against carried-over ₹9,500 balance
+    const expRes = await fetch(`${BASE_URL}/expenses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${arunToken}`,
+      },
+      body: JSON.stringify({
+        categoryId: 'cat-001',
+        categoryName: 'Tea & Coffee',
+        amount: 250,
+        expenseDate: new Date().toISOString().split('T')[0],
+        reason: 'Post-handover daily office tea & snacks',
+        paymentMode: 'Cash',
+      }),
+    });
+    expect(expRes.status).toBe(201);
+    const expBody = await expRes.json();
+    expect(expBody.success).toBe(true);
+    expect(expBody.data.newBalance).toBe(9250);
+
+    // 2) New custodian submits a new Petty Cash Fund Request
+    const reqRes = await fetch(`${BASE_URL}/requests`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${arunToken}`,
+      },
+      body: JSON.stringify({
+        requestedAmount: 5000,
+        purpose: 'Monthly office petty cash replenishment after custodian handover',
+      }),
+    });
+    expect(reqRes.status).toBe(201);
+    const reqBody = await reqRes.json();
+    expect(reqBody.success).toBe(true);
+    expect(reqBody.data.status).toBe('PENDING_CEO_APPROVAL');
+    expect(reqBody.data.request_number).toBe(`PCR-${new Date().getFullYear()}-0002`);
+  });
 });

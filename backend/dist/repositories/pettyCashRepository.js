@@ -530,19 +530,38 @@ export class PettyCashRepository {
             return { previousAccount: updatedPrev, newAccount };
         });
     }
+    async nextSequenceNumber(table, column, prefix, fallbackCount) {
+        const year = new Date().getFullYear();
+        const fullPrefix = `${prefix}-${year}-`;
+        try {
+            const res = await query(`SELECT COALESCE(
+           MAX(CAST(NULLIF(regexp_replace(${column}, '^.*-', ''), '') AS INTEGER)),
+           0
+         ) AS max_num
+         FROM public.${table}
+         WHERE ${column} LIKE $1`, [`${fullPrefix}%`]);
+            const maxNum = parseInt(String(res?.rows?.[0]?.max_num ?? '0'), 10);
+            const nextNum = (Number.isFinite(maxNum) ? maxNum : 0) + 1;
+            return `${fullPrefix}${String(nextNum).padStart(4, '0')}`;
+        }
+        catch {
+            return `${fullPrefix}${String(fallbackCount + 1).padStart(4, '0')}`;
+        }
+    }
     // ============================================================
     // 2. PETTY CASH REQUESTS (Custodian & CEO)
     // ============================================================
     async createRequest(params) {
         const id = crypto.randomUUID();
-        const count = this.requests.size + 1;
-        const requestNumber = `PCR-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+        const requestNumber = await this.nextSequenceNumber('petty_cash_requests', 'request_number', 'PCR', this.requests.size);
+        const activeAccount = await this.getAccountById(params.accountId);
+        const resolvedEmployeeId = activeAccount?.custodian_id || params.employeeId;
         const request = {
             id,
             request_number: requestNumber,
             company_id: params.companyId || 'company-a',
             account_id: params.accountId,
-            employee_id: params.employeeId,
+            employee_id: resolvedEmployeeId,
             employee_name: params.employeeName,
             employee_code: params.employeeCode,
             requested_amount: new Decimal(params.requestedAmount).toDecimalPlaces(2).toNumber(),
@@ -566,6 +585,9 @@ export class PettyCashRepository {
             ]);
         }
         catch (dbErr) {
+            if (!this.isDbUnavailableError(dbErr)) {
+                throw dbErr;
+            }
             console.warn('[PettyCashRepository] DB insert request fallback:', dbErr);
         }
         this.requests.set(id, request);
@@ -737,8 +759,7 @@ export class PettyCashRepository {
                 }
             }
             const id = crypto.randomUUID();
-            const count = this.disbursements.size + 1;
-            const disbursementNumber = `PCD-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+            const disbursementNumber = await this.nextSequenceNumber('petty_cash_disbursements', 'disbursement_number', 'PCD', this.disbursements.size);
             const disbursement = {
                 id,
                 disbursement_number: disbursementNumber,
@@ -899,8 +920,7 @@ export class PettyCashRepository {
                 throw new Error('Unauthorized: Only the assigned Petty Cash Custodian can confirm or dispute cash receipt');
             }
             const receiptId = crypto.randomUUID();
-            const count = this.receipts.size + 1;
-            const receiptNumber = `PCRCP-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+            const receiptNumber = await this.nextSequenceNumber('petty_cash_receipts', 'receipt_number', 'PCRCP', this.receipts.size);
             if (params.action === 'DISPUTE') {
                 // Discrepancy reported: Do not credit balance
                 disbursement.status = 'DISPUTED';
@@ -1078,16 +1098,7 @@ export class PettyCashRepository {
             const balanceAfter = currentBalance.minus(expenseAmount);
             account.current_balance = balanceAfter.toNumber();
             account.updated_at = new Date().toISOString();
-            let expenseNumber = `PCX-${new Date().getFullYear()}-0001`;
-            try {
-                const countRes = await query(`SELECT COUNT(*) as count FROM public.petty_cash_expenses WHERE company_id = $1`, [account.company_id]);
-                const count = (parseInt(countRes?.rows?.[0]?.count || '0', 10)) + 1;
-                expenseNumber = `PCX-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
-            }
-            catch (e) {
-                const count = this.expenses.size + 1;
-                expenseNumber = `PCX-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
-            }
+            const expenseNumber = await this.nextSequenceNumber('petty_cash_expenses', 'expense_number', 'PCX', this.expenses.size);
             const isUuid = (str) => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
             const expenseId = (params.idempotencyKey && isUuid(params.idempotencyKey)) ? params.idempotencyKey : crypto.randomUUID();
             let finalCatId = params.categoryId;
@@ -1201,10 +1212,12 @@ export class PettyCashRepository {
             catch (dbErr) {
                 console.warn('[PettyCashRepository] DB insert ledger debit fallback:', dbErr);
             }
-            // Recalculate true balance in DB to ensure zero discrepancy
+            // Recalculate true balance in DB (handed-over opening credit + disbursements - active expenses)
             try {
                 const balRes = await query(`UPDATE public.petty_cash_accounts a
            SET current_balance = (
+             COALESCE((SELECT SUM(l.amount) FROM public.petty_cash_ledger l WHERE l.account_id = a.id AND l.transaction_type = 'CREDIT' AND l.reference_type = 'RECONCILIATION_ADJUSTMENT'), 0)
+             +
              COALESCE((SELECT SUM(d.disbursed_amount) FROM public.petty_cash_disbursements d WHERE d.account_id = a.id AND d.status IN ('DISBURSED', 'CONFIRMED')), 0)
              -
              COALESCE((SELECT SUM(e.amount) FROM public.petty_cash_expenses e WHERE e.account_id = a.id AND e.is_reversed = false), 0)
@@ -1214,9 +1227,13 @@ export class PettyCashRepository {
            RETURNING current_balance`, [account.id]);
                 if (balRes && balRes.rows && balRes.rows[0]) {
                     account.current_balance = Number(balRes.rows[0].current_balance);
+                    this.accounts.set(account.id, account);
                 }
             }
             catch (dbErr) {
+                if (!this.isDbUnavailableError(dbErr)) {
+                    throw dbErr;
+                }
                 console.warn('[PettyCashRepository] DB update account balance fallback:', dbErr);
             }
             return { expense, newBalance: account.current_balance };
